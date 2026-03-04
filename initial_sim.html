@@ -102,9 +102,12 @@
             padding: 1rem 2rem;
             border-radius: 50px;
             display: flex;
-            gap: 2rem;
+            gap: 1.5rem;
             align-items: center;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+            flex-wrap: wrap;
+            justify-content: center;
+            max-width: 95vw;
         }
 
         .control-group {
@@ -168,9 +171,9 @@
         }
 
         .btn.active-toggle {
-            border-color: var(--accent);
-            color: var(--accent);
-            background: rgba(255, 255, 255, 0.1);
+            border-color: #f0c040;
+            color: #f0c040;
+            background: rgba(240, 192, 64, 0.1);
         }
 
         .canvas-wrapper {
@@ -253,6 +256,13 @@
             text-transform: uppercase;
             letter-spacing: 0.1em;
         }
+
+        .sep {
+            width: 1px;
+            height: 30px;
+            background: #333;
+            margin: 0 4px;
+        }
     </style>
 </head>
 
@@ -282,7 +292,6 @@
             <canvas id="editCanvas"></canvas>
             <div class="eraser-cursor" id="eraserCursor"></div>
         </div>
-
         <div class="floating-panel">
             <div class="control-group">
                 <label>Edge Detail</label>
@@ -292,7 +301,7 @@
                 <label>Eraser Size</label>
                 <input type="range" id="eraserSize" min="5" max="100" value="30">
             </div>
-            <div style="width: 1px; height: 30px; background: #333; margin: 0 10px;"></div>
+            <div class="sep"></div>
             <button class="btn" id="resetEdgesBtn">Reset Edges</button>
             <button class="btn btn-primary" id="startSwarmBtn">Deploy Swarm</button>
         </div>
@@ -306,42 +315,46 @@
 
         <div class="sim-clock" id="simClock">
             <span class="clock" id="clockDisplay">00:00</span>
-            <span class="phase" id="phaseDisplay">Chaos</span>
+            <span class="phase" id="phaseDisplay">Ready</span>
         </div>
 
         <div class="floating-panel">
+            <!-- Mode Buttons -->
+            <button class="btn active-toggle" id="modeSwarmBtn">Swarm</button>
+            <button class="btn" id="modePenBtn">Single Pen</button>
+            <button class="btn" id="modeFlowBtn">Edge Flow</button>
+            <div class="sep"></div>
+            <!-- Controls -->
             <div class="control-group">
-                <label>Swarm Density</label>
+                <label>Density</label>
                 <input type="range" id="simAgents" min="100" max="5500" value="600">
             </div>
             <div class="control-group">
-                <label>Flow Smoothness</label>
+                <label>Smoothness</label>
                 <input type="range" id="simSmoothness" min="1" max="10" value="8">
             </div>
             <div class="control-group" style="flex-direction: row; align-items: center; gap: 10px;">
-                <label>Void Mode</label>
+                <label>Void</label>
                 <input type="checkbox" id="simVoidToggle" checked style="accent-color: var(--accent);">
             </div>
             <div class="control-group" style="flex-direction: row; align-items: center; gap: 10px;">
-                <label>Monochrome</label>
+                <label>Mono</label>
                 <input type="checkbox" id="monochromeToggle" style="accent-color: var(--accent);">
             </div>
-            <div style="width: 1px; height: 30px; background: #333; margin: 0 10px;"></div>
+            <div class="sep"></div>
             <button class="btn" id="evolveBtn">1-Min Evolve</button>
-            <button class="btn" id="clearSimBtn">Wipe Canvas</button>
-            <button class="btn btn-primary" id="exportBtn">Export Art</button>
+            <button class="btn" id="clearSimBtn">Wipe</button>
+            <button class="btn btn-primary" id="exportBtn">Export</button>
         </div>
     </div>
 
     <input type="file" id="fileInput" class="hidden-input" accept="image/*">
 
     <script>
-        // --- Core Elements ---
-        const views = {
-            splash: document.getElementById('view-splash'),
-            edit: document.getElementById('view-edit'),
-            sim: document.getElementById('view-sim')
-        };
+        // ============================================
+        //  CORE ELEMENTS & STATE
+        // ============================================
+        const views = { splash: document.getElementById('view-splash'), edit: document.getElementById('view-edit'), sim: document.getElementById('view-sim') };
         const editCanvas = document.getElementById('editCanvas');
         const editCtx = editCanvas.getContext('2d', { willReadFrequently: true });
         const simCanvas = document.getElementById('simCanvas');
@@ -349,21 +362,25 @@
         const phaseIndicator = document.getElementById('phaseIndicator');
         const restartBtn = document.getElementById('restartBtn');
 
-        // --- Global State ---
         let sourceImgData = null;
         let originalImg = null;
         let w, h;
         let boids = [];
-        let negativeBoids = [];
         let simulationRaf;
         let edgeDataArray = null;
-        let faceMask = null; // 1 = inside face, 0 = outside
-
-        // Evolution state
+        let faceMask = null;
         let isEvolving = false;
         let evolveStart = 0;
 
-        // --- Config ---
+        // Current mode: 'swarm', 'pen', 'flow'
+        let currentMode = 'swarm';
+
+        // Single Pen instance
+        let singlePen = null;
+
+        // Edge graph for flow mode
+        let graphNodes = [];
+
         const config = {
             eraserSize: 30,
             edgeThreshold: 45,
@@ -373,22 +390,14 @@
             voidMode: true,
             smoothness: 0.8,
             monochrome: false,
-            negativeRatio: 0.08 // 8% of flock are negative (erasers)
+            negativeRatio: 0.0
         };
 
-        // --- MediaPipe Face Mesh Setup ---
-        const faceMeshInstance = new FaceMesh({
-            locateFile: (file) => {
-                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
-            }
-        });
-        faceMeshInstance.setOptions({
-            maxNumFaces: 1,
-            refineLandmarks: true,
-            minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5
-        });
-
+        // ============================================
+        //  MEDIAPIPE FACE MESH
+        // ============================================
+        const faceMeshInstance = new FaceMesh({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}` });
+        faceMeshInstance.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.2, minTrackingConfidence: 0.4 });
         let storedLandmarks = null;
 
         faceMeshInstance.onResults((results) => {
@@ -400,499 +409,588 @@
                 console.warn("No face detected. Using full image for edges.");
                 faceMask = new Uint8Array(w * h).fill(1);
             }
-            // Regenerate edges with face weighting
             generateEdges();
             setView('edit');
         });
 
         function buildFaceMask(landmarks) {
             faceMask = new Uint8Array(w * h);
-            const maskCanvas = document.createElement('canvas');
-            maskCanvas.width = w; maskCanvas.height = h;
-            const mCtx = maskCanvas.getContext('2d');
-
-            // Face Oval indices
-            let ovalIndices = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288,
-                397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132,
-                93, 234, 127, 162, 21, 54, 103, 67, 109];
-
+            const mc = document.createElement('canvas'); mc.width = w; mc.height = h;
+            const mCtx = mc.getContext('2d');
+            let ovalIndices = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109];
             if (window.FACEMESH_FACE_OVAL) {
                 const pairs = [...window.FACEMESH_FACE_OVAL];
                 ovalIndices = [pairs[0][0]];
                 for (let i = 0; i < pairs.length; i++) ovalIndices.push(pairs[i][1]);
             }
-
-            // Center for padding
             let cx = 0, cy = 0;
             ovalIndices.forEach(idx => { cx += landmarks[idx].x * w; cy += landmarks[idx].y * h; });
             cx /= ovalIndices.length; cy /= ovalIndices.length;
-
             const padding = 1.15;
             mCtx.fillStyle = '#fff';
             mCtx.beginPath();
             ovalIndices.forEach((idx, i) => {
-                let px = landmarks[idx].x * w;
-                let py = landmarks[idx].y * h;
-                px = cx + (px - cx) * padding;
-                py = cy + (py - cy) * padding;
+                let px = cx + (landmarks[idx].x * w - cx) * padding;
+                let py = cy + (landmarks[idx].y * h - cy) * padding;
                 if (i === 0) mCtx.moveTo(px, py); else mCtx.lineTo(px, py);
             });
-            mCtx.closePath();
-            mCtx.fill();
-
+            mCtx.closePath(); mCtx.fill();
             const maskData = mCtx.getImageData(0, 0, w, h).data;
-            for (let i = 0; i < maskData.length; i += 4) {
-                faceMask[i / 4] = maskData[i] > 128 ? 1 : 0;
-            }
+            for (let i = 0; i < maskData.length; i += 4) faceMask[i / 4] = maskData[i] > 128 ? 1 : 0;
         }
 
-        // --- Navigation ---
+        // ============================================
+        //  NAVIGATION
+        // ============================================
         function setView(viewName) {
             Object.values(views).forEach(v => v.classList.remove('active'));
             views[viewName].classList.add('active');
-
-            if (viewName === 'splash') {
-                phaseIndicator.innerText = "Phase 1 / Upload";
-                restartBtn.style.opacity = "0";
-                restartBtn.style.pointerEvents = "none";
-                cancelAnimationFrame(simulationRaf);
-                isEvolving = false;
-            } else if (viewName === 'edit') {
-                phaseIndicator.innerText = "Phase 2 / Isolate Edges (Erase Unwanted Lines)";
-                restartBtn.style.opacity = "1";
-                restartBtn.style.pointerEvents = "auto";
-            } else if (viewName === 'sim') {
-                phaseIndicator.innerText = "Phase 3 / Swarm Tracing";
-            }
+            if (viewName === 'splash') { phaseIndicator.innerText = "Phase 1 / Upload"; restartBtn.style.opacity = "0"; restartBtn.style.pointerEvents = "none"; cancelAnimationFrame(simulationRaf); isEvolving = false; }
+            else if (viewName === 'edit') { phaseIndicator.innerText = "Phase 2 / Isolate Edges"; restartBtn.style.opacity = "1"; restartBtn.style.pointerEvents = "auto"; }
+            else if (viewName === 'sim') { phaseIndicator.innerText = "Phase 3 / " + currentMode.toUpperCase(); }
         }
-
         restartBtn.onclick = () => setView('splash');
 
-        // --- Phase 1: Upload ---
+        // ============================================
+        //  PHASE 1: UPLOAD
+        // ============================================
         document.getElementById('fileInput').onchange = (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
+            const file = e.target.files[0]; if (!file) return;
             const reader = new FileReader();
-            reader.onload = (ev) => {
-                originalImg = new Image();
-                originalImg.onload = () => initEditor(originalImg);
-                originalImg.src = ev.target.result;
-            };
+            reader.onload = (ev) => { originalImg = new Image(); originalImg.onload = () => initEditor(originalImg); originalImg.src = ev.target.result; };
             reader.readAsDataURL(file);
         };
 
-        // --- Phase 2: Edge Editor ---
+        // ============================================
+        //  PHASE 2: EDGE EDITOR
+        // ============================================
         function initEditor(img) {
-            const maxW = window.innerWidth * 0.9;
-            const maxH = window.innerHeight * 0.8;
+            const maxW = window.innerWidth * 0.9, maxH = window.innerHeight * 0.8;
             const scale = Math.min(maxW / img.width, maxH / img.height);
-
             w = editCanvas.width = simCanvas.width = Math.max(1, Math.floor(img.width * scale));
             h = editCanvas.height = simCanvas.height = Math.max(1, Math.floor(img.height * scale));
-
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = w; tempCanvas.height = h;
-            const tCtx = tempCanvas.getContext('2d');
-            tCtx.drawImage(img, 0, 0, w, h);
+            const tc = document.createElement('canvas'); tc.width = w; tc.height = h;
+            const tCtx = tc.getContext('2d'); tCtx.drawImage(img, 0, 0, w, h);
             sourceImgData = tCtx.getImageData(0, 0, w, h).data;
-
-            // Send to MediaPipe for face detection
             phaseIndicator.innerText = "Detecting face...";
-            faceMeshInstance.send({ image: tempCanvas });
+            faceMeshInstance.send({ image: tc });
         }
 
         function generateEdges() {
-            // Weighted Sobel: 80% weight inside face mask, 20% outside
-            const data = sourceImgData;
-
-            // Blur first for cleaner edges
-            const blurCanvas = document.createElement('canvas');
-            blurCanvas.width = w; blurCanvas.height = h;
-            const bCtx = blurCanvas.getContext('2d');
-            bCtx.filter = 'blur(2px)';
-            const srcCanvas = document.createElement('canvas');
-            srcCanvas.width = w; srcCanvas.height = h;
-            srcCanvas.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(data), w, h), 0, 0);
-            bCtx.drawImage(srcCanvas, 0, 0);
+            const blurC = document.createElement('canvas'); blurC.width = w; blurC.height = h;
+            const bCtx = blurC.getContext('2d'); bCtx.filter = 'blur(2px)';
+            const srcC = document.createElement('canvas'); srcC.width = w; srcC.height = h;
+            srcC.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(sourceImgData), w, h), 0, 0);
+            bCtx.drawImage(srcC, 0, 0);
             const blurData = bCtx.getImageData(0, 0, w, h).data;
-
             const edges = new Uint8ClampedArray(w * h * 4);
             const luma = new Uint8Array(w * h);
-
-            for (let i = 0; i < blurData.length; i += 4) {
-                luma[i / 4] = blurData[i] * 0.21 + blurData[i + 1] * 0.72 + blurData[i + 2] * 0.07;
-            }
-
+            for (let i = 0; i < blurData.length; i += 4) luma[i / 4] = blurData[i] * 0.21 + blurData[i + 1] * 0.72 + blurData[i + 2] * 0.07;
             for (let y = 1; y < h - 1; y++) {
                 for (let x = 1; x < w - 1; x++) {
                     const idx = y * w + x;
-                    const h_grad = -luma[(y - 1) * w + (x - 1)] + luma[(y - 1) * w + (x + 1)]
-                        - 2 * luma[y * w + (x - 1)] + 2 * luma[y * w + (x + 1)]
-                        - luma[(y + 1) * w + (x - 1)] + luma[(y + 1) * w + (x + 1)];
-                    const v_grad = -luma[(y - 1) * w + (x - 1)] - 2 * luma[(y - 1) * w + x] - luma[(y - 1) * w + (x + 1)]
-                        + luma[(y + 1) * w + (x - 1)] + 2 * luma[(y + 1) * w + x] + luma[(y + 1) * w + (x + 1)];
-
-                    let val = Math.sqrt(h_grad * h_grad + v_grad * v_grad);
-                    const pixelIdx = idx * 4;
-
-                    // WEIGHTED: inside face = use lower threshold (more detail),
-                    //           outside face = use higher threshold (only strong edges survive)
-                    const insideFace = faceMask ? faceMask[idx] === 1 : true;
-                    const threshold = insideFace
-                        ? config.edgeThreshold * 0.7   // 80% weight = lower bar = more edges
-                        : config.edgeThreshold * 2.0;  // 20% weight = higher bar = fewer edges
-
-                    if (val > threshold) {
-                        const brightness = insideFace ? 255 : 120; // Dimmer outside face
-                        edges[pixelIdx] = brightness;
-                        edges[pixelIdx + 1] = brightness;
-                        edges[pixelIdx + 2] = brightness;
-                        edges[pixelIdx + 3] = 255;
-                    } else {
-                        edges[pixelIdx] = 0;
-                        edges[pixelIdx + 1] = 0;
-                        edges[pixelIdx + 2] = 0;
-                        edges[pixelIdx + 3] = 255;
-                    }
+                    const hg = -luma[(y - 1) * w + (x - 1)] + luma[(y - 1) * w + (x + 1)] - 2 * luma[y * w + (x - 1)] + 2 * luma[y * w + (x + 1)] - luma[(y + 1) * w + (x - 1)] + luma[(y + 1) * w + (x + 1)];
+                    const vg = -luma[(y - 1) * w + (x - 1)] - 2 * luma[(y - 1) * w + x] - luma[(y - 1) * w + (x + 1)] + luma[(y + 1) * w + (x - 1)] + 2 * luma[(y + 1) * w + x] + luma[(y + 1) * w + (x + 1)];
+                    const val = Math.sqrt(hg * hg + vg * vg);
+                    const pi = idx * 4;
+                    const inside = faceMask ? faceMask[idx] === 1 : true;
+                    const thresh = inside ? config.edgeThreshold * 0.7 : config.edgeThreshold * 2.0;
+                    if (val > thresh) {
+                        const b = inside ? 255 : 120;
+                        edges[pi] = b; edges[pi + 1] = b; edges[pi + 2] = b; edges[pi + 3] = 255;
+                    } else { edges[pi] = 0; edges[pi + 1] = 0; edges[pi + 2] = 0; edges[pi + 3] = 255; }
                 }
             }
-
-            const edgeImgData = new ImageData(edges, w, h);
-            editCtx.putImageData(edgeImgData, 0, 0);
+            editCtx.putImageData(new ImageData(edges, w, h), 0, 0);
         }
 
-        // Editor UI Controls
-        document.getElementById('edgeThreshold').oninput = (e) => {
-            config.edgeThreshold = parseInt(e.target.value);
-            generateEdges();
-        };
-        document.getElementById('eraserSize').oninput = (e) => {
-            config.eraserSize = parseInt(e.target.value);
-            document.getElementById('eraserCursor').style.width = `${config.eraserSize * 2}px`;
-            document.getElementById('eraserCursor').style.height = `${config.eraserSize * 2}px`;
-        };
+        document.getElementById('edgeThreshold').oninput = (e) => { config.edgeThreshold = parseInt(e.target.value); generateEdges(); };
+        document.getElementById('eraserSize').oninput = (e) => { config.eraserSize = parseInt(e.target.value); document.getElementById('eraserCursor').style.width = `${config.eraserSize * 2}px`; document.getElementById('eraserCursor').style.height = `${config.eraserSize * 2}px`; };
         document.getElementById('resetEdgesBtn').onclick = generateEdges;
 
-        // Eraser Logic
-        let isErasing = false;
-        let lastX, lastY;
+        let isErasing = false; let elX, elY;
         const cursor = document.getElementById('eraserCursor');
-
-        function getMousePos(canvas, evt) {
-            const rect = canvas.getBoundingClientRect();
-            const scaleX = canvas.width / rect.width;
-            const scaleY = canvas.height / rect.height;
-            return { x: (evt.clientX - rect.left) * scaleX, y: (evt.clientY - rect.top) * scaleY };
-        }
-
-        editCanvas.addEventListener('mousedown', (e) => { isErasing = true; const pos = getMousePos(editCanvas, e); lastX = pos.x; lastY = pos.y; erase(pos.x, pos.y); });
-        editCanvas.addEventListener('mousemove', (e) => { cursor.style.display = 'block'; cursor.style.left = e.clientX + 'px'; cursor.style.top = e.clientY + 'px'; if (isErasing) { const pos = getMousePos(editCanvas, e); erase(pos.x, pos.y, true); lastX = pos.x; lastY = pos.y; } });
+        function getMousePos(c, e) { const r = c.getBoundingClientRect(); return { x: (e.clientX - r.left) * c.width / r.width, y: (e.clientY - r.top) * c.height / r.height }; }
+        editCanvas.addEventListener('mousedown', (e) => { isErasing = true; const p = getMousePos(editCanvas, e); elX = p.x; elY = p.y; erase(p.x, p.y); });
+        editCanvas.addEventListener('mousemove', (e) => { cursor.style.display = 'block'; cursor.style.left = e.clientX + 'px'; cursor.style.top = e.clientY + 'px'; if (isErasing) { const p = getMousePos(editCanvas, e); erase(p.x, p.y, true); elX = p.x; elY = p.y; } });
         editCanvas.addEventListener('mouseup', () => isErasing = false);
         editCanvas.addEventListener('mouseleave', () => { isErasing = false; cursor.style.display = 'none'; });
-
         function erase(x, y, line = false) {
-            editCtx.fillStyle = '#000'; editCtx.strokeStyle = '#000';
-            editCtx.lineWidth = config.eraserSize * 2; editCtx.lineCap = 'round'; editCtx.lineJoin = 'round';
-            if (line) { editCtx.beginPath(); editCtx.moveTo(lastX, lastY); editCtx.lineTo(x, y); editCtx.stroke(); }
+            editCtx.fillStyle = '#000'; editCtx.strokeStyle = '#000'; editCtx.lineWidth = config.eraserSize * 2; editCtx.lineCap = 'round'; editCtx.lineJoin = 'round';
+            if (line) { editCtx.beginPath(); editCtx.moveTo(elX, elY); editCtx.lineTo(x, y); editCtx.stroke(); }
             else { editCtx.beginPath(); editCtx.arc(x, y, config.eraserSize, 0, Math.PI * 2); editCtx.fill(); }
         }
 
-        // --- Transition Phase 2 to 3 ---
+        // ============================================
+        //  TRANSITION TO SIM
+        // ============================================
         document.getElementById('startSwarmBtn').onclick = () => {
-            const finalEdgeData = editCtx.getImageData(0, 0, w, h).data;
+            const fd = editCtx.getImageData(0, 0, w, h).data;
             edgeDataArray = new Uint8Array(w * h);
-            for (let i = 0; i < finalEdgeData.length; i += 4) {
-                edgeDataArray[i / 4] = finalEdgeData[i] > 60 ? 1 : 0;
-            }
-            initSimulation();
+            for (let i = 0; i < fd.length; i += 4) edgeDataArray[i / 4] = fd[i] > 60 ? 1 : 0;
+            // Build the edge graph for flow mode
+            buildEdgeGraph();
+            // Start in whatever mode is selected
+            startMode(currentMode);
             setView('sim');
         };
 
-        // --- Phase 3: Smooth Swarm Physics ---
-        class Boid {
-            constructor(isNegative = false) {
-                this.x = Math.random() * w;
-                this.y = Math.random() * h;
-                this.vx = (Math.random() - 0.5) * 4;
-                this.vy = (Math.random() - 0.5) * 4;
-                this.lx = this.x;
-                this.ly = this.y;
-                this.color = { r: 200, g: 200, b: 200 };
-                this.onEdge = false;
-                this.isNegative = isNegative;
+        // ============================================
+        //  EDGE GRAPH CONSTRUCTION (for Flow Mode)
+        // ============================================
+        function buildEdgeGraph() {
+            graphNodes = [];
+            const gridSize = 25; // Sample every 25px
+            // Sample nodes from edge clusters
+            for (let gy = 0; gy < h; gy += gridSize) {
+                for (let gx = 0; gx < w; gx += gridSize) {
+                    // Count edge pixels in this grid cell
+                    let count = 0, sx = 0, sy = 0;
+                    for (let dy = 0; dy < gridSize && gy + dy < h; dy++) {
+                        for (let dx = 0; dx < gridSize && gx + dx < w; dx++) {
+                            if (edgeDataArray[(gy + dy) * w + (gx + dx)] === 1) {
+                                count++; sx += gx + dx; sy += gy + dy;
+                            }
+                        }
+                    }
+                    if (count > 3) { // Minimum density to be a node
+                        graphNodes.push({
+                            x: sx / count,
+                            y: sy / count,
+                            neighbors: [],
+                            density: count // Denser = more attractive
+                        });
+                    }
+                }
             }
+            // Connect nodes that are within range
+            const maxDist = gridSize * 2.5;
+            for (let i = 0; i < graphNodes.length; i++) {
+                for (let j = i + 1; j < graphNodes.length; j++) {
+                    const dx = graphNodes[i].x - graphNodes[j].x;
+                    const dy = graphNodes[i].y - graphNodes[j].y;
+                    if (Math.sqrt(dx * dx + dy * dy) < maxDist) {
+                        graphNodes[i].neighbors.push(j);
+                        graphNodes[j].neighbors.push(i);
+                    }
+                }
+            }
+            console.log(`Edge graph: ${graphNodes.length} nodes built.`);
+        }
 
+        // ============================================
+        //  MODE SWITCHING
+        // ============================================
+        function startMode(mode) {
+            currentMode = mode;
+            cancelAnimationFrame(simulationRaf);
+            isEvolving = false;
+
+            // Update UI mode buttons
+            document.getElementById('modeSwarmBtn').className = mode === 'swarm' ? 'btn active-toggle' : 'btn';
+            document.getElementById('modePenBtn').className = mode === 'pen' ? 'btn active-toggle' : 'btn';
+            document.getElementById('modeFlowBtn').className = mode === 'flow' ? 'btn active-toggle' : 'btn';
+
+            if (mode === 'swarm') {
+                simCtx.fillStyle = '#000'; simCtx.fillRect(0, 0, w, h);
+                boids = [];
+                for (let i = 0; i < config.agents; i++) boids.push(new Boid());
+                animateSwarm();
+            } else if (mode === 'pen') {
+                simCtx.fillStyle = '#f5f0eb'; simCtx.fillRect(0, 0, w, h); // Warm white canvas
+                singlePen = new SinglePen();
+                animatePen();
+            } else if (mode === 'flow') {
+                simCtx.fillStyle = '#000'; simCtx.fillRect(0, 0, w, h);
+                boids = [];
+                for (let i = 0; i < config.agents; i++) boids.push(new FlowBoid());
+                animateFlow();
+            }
+            phaseIndicator.innerText = "Phase 3 / " + mode.toUpperCase();
+        }
+
+        // ============================================
+        //  MODE 1: SWARM (Original)
+        // ============================================
+        class Boid {
+            constructor() {
+                this.x = Math.random() * w; this.y = Math.random() * h;
+                this.vx = (Math.random() - 0.5) * 4; this.vy = (Math.random() - 0.5) * 4;
+                this.lx = this.x; this.ly = this.y;
+                this.color = { r: 200, g: 200, b: 200 }; this.onEdge = false;
+            }
             applyPhysics(allBoids) {
-                let sepX = 0, sepY = 0, aliX = 0, aliY = 0, cohX = 0, cohY = 0;
-                let total = 0;
+                let sepX = 0, sepY = 0, aliX = 0, aliY = 0, cohX = 0, cohY = 0, total = 0;
                 const perception = 40;
-
-                // Smooth Flocking (only with same-type boids)
                 for (let i = 0; i < allBoids.length; i++) {
-                    const other = allBoids[i];
-                    if (other === this) continue;
-                    if (other.isNegative !== this.isNegative) continue; // Only flock with same type
-
-                    const dx = other.x - this.x;
-                    if (Math.abs(dx) > perception) continue;
-                    const dy = other.y - this.y;
-                    if (Math.abs(dy) > perception) continue;
-
+                    const o = allBoids[i]; if (o === this) continue;
+                    const dx = o.x - this.x; if (Math.abs(dx) > perception) continue;
+                    const dy = o.y - this.y; if (Math.abs(dy) > perception) continue;
                     const d2 = dx * dx + dy * dy;
                     if (d2 > 0 && d2 < perception * perception) {
                         const d = Math.sqrt(d2);
-                        sepX -= (dx / d) * (perception / d);
-                        sepY -= (dy / d) * (perception / d);
-                        aliX += other.vx;
-                        aliY += other.vy;
-                        cohX += other.x;
-                        cohY += other.y;
-                        total++;
+                        sepX -= (dx / d) * (perception / d); sepY -= (dy / d) * (perception / d);
+                        aliX += o.vx; aliY += o.vy; cohX += o.x; cohY += o.y; total++;
                     }
                 }
-
                 let steerX = 0, steerY = 0;
-
                 if (total > 0) {
-                    aliX /= total; aliY /= total;
-                    cohX /= total; cohY /= total;
-                    steerX += sepX * 0.05;
-                    steerY += sepY * 0.05;
-                    steerX += (aliX - this.vx) * 0.05;
-                    steerY += (aliY - this.vy) * 0.05;
-                    steerX += (cohX - this.x) * 0.01;
-                    steerY += (cohY - this.y) * 0.01;
+                    aliX /= total; aliY /= total; cohX /= total; cohY /= total;
+                    steerX += sepX * 0.05; steerY += sepY * 0.05;
+                    steerX += (aliX - this.vx) * 0.05; steerY += (aliY - this.vy) * 0.05;
+                    steerX += (cohX - this.x) * 0.01; steerY += (cohY - this.y) * 0.01;
                 }
-
-                // Edge Seeking
-                const ix = Math.floor(this.x);
-                const iy = Math.floor(this.y);
-                let foundEdge = false;
-                let bestDx = 0, bestDy = 0;
-
+                const ix = Math.floor(this.x), iy = Math.floor(this.y);
+                let foundEdge = false, bestDx = 0, bestDy = 0;
                 const r = 15;
                 for (let ox = -r; ox <= r; ox += 5) {
                     for (let oy = -r; oy <= r; oy += 5) {
-                        const cx = ix + ox;
-                        const cy = iy + oy;
-                        if (cx >= 0 && cx < w && cy >= 0 && cy < h) {
-                            if (edgeDataArray[cy * w + cx] === 1) {
-                                foundEdge = true;
-                                bestDx += ox;
-                                bestDy += oy;
-                            }
+                        const cx = ix + ox, cy = iy + oy;
+                        if (cx >= 0 && cx < w && cy >= 0 && cy < h && edgeDataArray[cy * w + cx] === 1) { foundEdge = true; bestDx += ox; bestDy += oy; }
+                    }
+                }
+                if (foundEdge) {
+                    this.onEdge = true;
+                    const dist = Math.sqrt(bestDx * bestDx + bestDy * bestDy) || 1;
+                    steerX += (bestDx / dist * config.maxSpeed - this.vx) * 0.15 * config.smoothness;
+                    steerY += (bestDy / dist * config.maxSpeed - this.vy) * 0.15 * config.smoothness;
+                    if (!config.monochrome) { const pI = (iy * w + ix) * 4; this.color = { r: sourceImgData[pI], g: sourceImgData[pI + 1], b: sourceImgData[pI + 2] }; }
+                    else { this.color = { r: 255, g: 255, b: 255 }; }
+                } else { this.onEdge = false; steerX += (Math.random() - 0.5) * 0.1; steerY += (Math.random() - 0.5) * 0.1; }
+                const sm = Math.sqrt(steerX * steerX + steerY * steerY);
+                if (sm > config.maxForce) { steerX = steerX / sm * config.maxForce; steerY = steerY / sm * config.maxForce; }
+                this.vx += steerX; this.vy += steerY;
+                const spd = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                if (spd > config.maxSpeed) { this.vx = this.vx / spd * config.maxSpeed; this.vy = this.vy / spd * config.maxSpeed; }
+                this.lx = this.x; this.ly = this.y; this.x += this.vx; this.y += this.vy;
+                if (this.x < 0) { this.x = w; this.lx = w; } if (this.x > w) { this.x = 0; this.lx = 0; }
+                if (this.y < 0) { this.y = h; this.ly = h; } if (this.y > h) { this.y = 0; this.ly = 0; }
+            }
+            draw() {
+                let alpha = this.onEdge ? 0.8 : (config.voidMode ? 0 : 0.05);
+                if (alpha > 0) {
+                    simCtx.strokeStyle = `rgba(${this.color.r},${this.color.g},${this.color.b},${alpha})`;
+                    simCtx.lineWidth = this.onEdge ? 1 : 0.5;
+                    simCtx.beginPath(); simCtx.moveTo(this.lx, this.ly); simCtx.lineTo(this.x, this.y); simCtx.stroke();
+                }
+            }
+        }
+
+        function animateSwarm() {
+            simCtx.fillStyle = 'rgba(0,0,0,0.01)'; simCtx.fillRect(0, 0, w, h);
+            if (isEvolving) runEvolution();
+            for (let i = 0; i < boids.length; i++) { boids[i].applyPhysics(boids); boids[i].draw(); }
+            simulationRaf = requestAnimationFrame(animateSwarm);
+        }
+
+        // ============================================
+        //  MODE 2: SINGLE PEN (Continuous Line Art)
+        // ============================================
+        class SinglePen {
+            constructor() {
+                this.x = w / 2; this.y = h / 2;
+                this.vx = 1.5; this.vy = 0.5;
+                this.lx = this.x; this.ly = this.y;
+                this.maxSpeed = 2.0;
+
+                // Pulsing magnetism system
+                this.magnetismOn = false;
+                this.magnetTimer = 0;
+                this.magnetDuration = 150; // frames this pulse lasts
+                this.magnetCooldown = 80;  // frames between pulses
+                this.frameCount = 0;
+                this.magnetStrength = 0;   // current strength (smooth ramp)
+
+                // Gentle curve memory (Perlin-like wander)
+                this.wanderAngle = Math.random() * Math.PI * 2;
+            }
+
+            update() {
+                this.frameCount++;
+                let steerX = 0, steerY = 0;
+
+                // --- Pulsing Magnetism Logic ---
+                // Cycle: ON for magnetDuration, OFF for magnetCooldown (randomized)
+                this.magnetTimer--;
+                if (this.magnetTimer <= 0) {
+                    this.magnetismOn = !this.magnetismOn;
+                    if (this.magnetismOn) {
+                        this.magnetDuration = 100 + Math.random() * 200; // 100-300 frames ON
+                        this.magnetTimer = this.magnetDuration;
+                        this.magnetStrength = 0.3 + Math.random() * 0.5; // Random strength each pulse
+                    } else {
+                        this.magnetCooldown = 40 + Math.random() * 120; // 40-160 frames OFF
+                        this.magnetTimer = this.magnetCooldown;
+                    }
+                }
+
+                // --- Edge Seeking (when magnetism is ON) ---
+                const ix = Math.floor(this.x), iy = Math.floor(this.y);
+                let foundEdge = false, bestDx = 0, bestDy = 0;
+                this.onEdge = false;
+
+                // Larger search radius for pen (sees farther)
+                const searchR = this.magnetismOn ? 35 : 10;
+                for (let ox = -searchR; ox <= searchR; ox += 4) {
+                    for (let oy = -searchR; oy <= searchR; oy += 4) {
+                        const cx = ix + ox, cy = iy + oy;
+                        if (cx >= 0 && cx < w && cy >= 0 && cy < h && edgeDataArray[cy * w + cx] === 1) {
+                            foundEdge = true;
+                            bestDx += ox; bestDy += oy;
                         }
                     }
                 }
 
                 if (foundEdge) {
-                    this.onEdge = true;
-                    const dist = Math.sqrt(bestDx * bestDx + bestDy * bestDy) || 1;
-                    const desiredX = (bestDx / dist) * config.maxSpeed;
-                    const desiredY = (bestDy / dist) * config.maxSpeed;
-
-                    steerX += (desiredX - this.vx) * 0.15 * config.smoothness;
-                    steerY += (desiredY - this.vy) * 0.15 * config.smoothness;
-
-                    // Sample Source Color
-                    if (!config.monochrome) {
-                        const pIdx = (iy * w + ix) * 4;
-                        this.color = {
-                            r: sourceImgData[pIdx],
-                            g: sourceImgData[pIdx + 1],
-                            b: sourceImgData[pIdx + 2]
-                        };
-                    } else {
-                        this.color = { r: 255, g: 255, b: 255 };
+                    // Check if we're RIGHT on the edge (close proximity)
+                    let nearCount = 0;
+                    for (let ox = -3; ox <= 3; ox++) {
+                        for (let oy = -3; oy <= 3; oy++) {
+                            const cx = ix + ox, cy = iy + oy;
+                            if (cx >= 0 && cx < w && cy >= 0 && cy < h && edgeDataArray[cy * w + cx] === 1) nearCount++;
+                        }
                     }
-                } else {
-                    this.onEdge = false;
-                    steerX += (Math.random() - 0.5) * 0.1;
-                    steerY += (Math.random() - 0.5) * 0.1;
+                    this.onEdge = nearCount > 2;
+
+                    if (this.magnetismOn) {
+                        const dist = Math.sqrt(bestDx * bestDx + bestDy * bestDy) || 1;
+                        steerX += (bestDx / dist) * this.magnetStrength * 0.04;
+                        steerY += (bestDy / dist) * this.magnetStrength * 0.04;
+                    }
                 }
 
-                // Limit Steering Force
-                const steerMag = Math.sqrt(steerX * steerX + steerY * steerY);
-                if (steerMag > config.maxForce) {
-                    steerX = (steerX / steerMag) * config.maxForce;
-                    steerY = (steerY / steerMag) * config.maxForce;
-                }
+                // --- Perlin-like Smooth Wander ---
+                this.wanderAngle += (Math.random() - 0.5) * 0.3;
+                steerX += Math.cos(this.wanderAngle) * 0.015;
+                steerY += Math.sin(this.wanderAngle) * 0.015;
 
-                this.vx += steerX;
-                this.vy += steerY;
+                // --- Border Avoidance (gentle push back) ---
+                const margin = 30;
+                if (this.x < margin) steerX += 0.03;
+                if (this.x > w - margin) steerX -= 0.03;
+                if (this.y < margin) steerY += 0.03;
+                if (this.y > h - margin) steerY -= 0.03;
 
+                // Apply forces
+                this.vx += steerX; this.vy += steerY;
                 const spd = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-                if (spd > config.maxSpeed) {
-                    this.vx = (this.vx / spd) * config.maxSpeed;
-                    this.vy = (this.vy / spd) * config.maxSpeed;
+                if (spd > this.maxSpeed) {
+                    this.vx = (this.vx / spd) * this.maxSpeed;
+                    this.vy = (this.vy / spd) * this.maxSpeed;
                 }
 
                 this.lx = this.x; this.ly = this.y;
                 this.x += this.vx; this.y += this.vy;
 
-                if (this.x < 0) { this.x = w; this.lx = w; }
-                if (this.x > w) { this.x = 0; this.lx = 0; }
-                if (this.y < 0) { this.y = h; this.ly = h; }
-                if (this.y > h) { this.y = 0; this.ly = 0; }
+                // Hard clamp to canvas
+                this.x = Math.max(0, Math.min(w, this.x));
+                this.y = Math.max(0, Math.min(h, this.y));
             }
 
             draw() {
-                if (this.isNegative) {
-                    // Negative boids ERASE: draw black lines with higher width
-                    if (this.onEdge) {
-                        simCtx.strokeStyle = `rgba(0, 0, 0, 0.6)`;
-                        simCtx.lineWidth = 2.5;
-                        simCtx.beginPath();
-                        simCtx.moveTo(this.lx, this.ly);
-                        simCtx.lineTo(this.x, this.y);
-                        simCtx.stroke();
-                    }
-                    return;
-                }
+                // Thin when wandering, THICK when on edge
+                const lineWidth = this.onEdge ? 1.8 : 0.3;
+                const alpha = this.onEdge ? 0.9 : 0.15;
 
-                // Positive boid drawing
-                let alpha = 0;
-                if (this.onEdge) {
-                    alpha = 0.8;
-                } else if (!config.voidMode) {
-                    alpha = 0.05;
-                }
-
-                if (alpha > 0) {
-                    simCtx.strokeStyle = `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, ${alpha})`;
-                    simCtx.lineWidth = this.onEdge ? 1 : 0.5;
-                    simCtx.beginPath();
-                    simCtx.moveTo(this.lx, this.ly);
-                    simCtx.lineTo(this.x, this.y);
-                    simCtx.stroke();
-                }
+                simCtx.strokeStyle = `rgba(20, 15, 10, ${alpha})`; // Near-black ink
+                simCtx.lineWidth = lineWidth;
+                simCtx.lineCap = 'round';
+                simCtx.beginPath();
+                simCtx.moveTo(this.lx, this.ly);
+                simCtx.lineTo(this.x, this.y);
+                simCtx.stroke();
             }
         }
 
-        function initSimulation() {
-            simCtx.fillStyle = '#000';
-            simCtx.fillRect(0, 0, w, h);
-
-            const numNeg = Math.floor(config.agents * config.negativeRatio);
-            const numPos = config.agents - numNeg;
-
-            boids = [];
-            for (let i = 0; i < numPos; i++) boids.push(new Boid(false));
-            for (let i = 0; i < numNeg; i++) boids.push(new Boid(true));
-
-            cancelAnimationFrame(simulationRaf);
-            animateSim();
+        function animatePen() {
+            // No background fade for pen mode (permanent ink on white paper)
+            if (singlePen) {
+                // Run multiple steps per frame for faster coverage
+                for (let i = 0; i < 8; i++) {
+                    singlePen.update();
+                    singlePen.draw();
+                }
+            }
+            simulationRaf = requestAnimationFrame(animatePen);
         }
 
-        function animateSim() {
-            // Very subtle fade — longer trails
-            simCtx.fillStyle = 'rgba(0,0,0,0.003)';
-            simCtx.fillRect(0, 0, w, h);
-
-            // --- 1-MIN EVOLUTION ---
-            if (isEvolving) {
-                const elapsedSec = (performance.now() - evolveStart) / 1000;
-                const clockEl = document.getElementById('clockDisplay');
-                const phaseEl = document.getElementById('phaseDisplay');
-
-                if (elapsedSec <= 60) {
-                    const m = Math.floor(elapsedSec / 60).toString().padStart(2, '0');
-                    const s = Math.floor(elapsedSec % 60).toString().padStart(2, '0');
-                    clockEl.innerText = `${m}:${s}`;
-                }
-
-                if (elapsedSec < 15) {
-                    // CHAOS: 100 agents, low smoothness
-                    phaseEl.innerText = "Chaos";
-                    const targetAgents = 100;
-                    config.smoothness = 0.2;
-                    config.maxForce = 0.05;
-                    resizeFlock(targetAgents);
-
-                } else if (elapsedSec < 45) {
-                    // DISCOVERY: ramp from 100 to 2000, ramp smoothness
-                    phaseEl.innerText = "Discovery";
-                    const progress = (elapsedSec - 15) / 30; // 0 to 1
-                    const targetAgents = Math.floor(100 + progress * 1900);
-                    config.smoothness = 0.2 + progress * 0.6;
-                    config.maxForce = 0.05 + progress * 0.05;
-                    resizeFlock(targetAgents);
-
-                } else if (elapsedSec < 60) {
-                    // SOLIDIFICATION: 2000 agents, max smoothness, less fade
-                    phaseEl.innerText = "Solidification";
-                    config.smoothness = 1.0;
-                    config.maxForce = 0.1;
-                    resizeFlock(2000);
-
+        // ============================================
+        //  MODE 3: EDGE FLOW (Graph-Based Navigation)
+        // ============================================
+        class FlowBoid {
+            constructor() {
+                // Start at a random graph node
+                if (graphNodes.length > 0) {
+                    const startNode = graphNodes[Math.floor(Math.random() * graphNodes.length)];
+                    this.x = startNode.x + (Math.random() - 0.5) * 10;
+                    this.y = startNode.y + (Math.random() - 0.5) * 10;
                 } else {
-                    // Complete
-                    phaseEl.innerText = "Complete";
-                    clockEl.innerText = "01:00";
-                    isEvolving = false;
+                    this.x = Math.random() * w; this.y = Math.random() * h;
+                }
+                this.vx = (Math.random() - 0.5) * 2;
+                this.vy = (Math.random() - 0.5) * 2;
+                this.lx = this.x; this.ly = this.y;
+                this.color = { r: 200, g: 200, b: 200 };
+                this.onEdge = false;
+
+                // Graph navigation
+                this.targetNodeIdx = this.findNearestNode();
+                this.nextNodeIdx = -1;
+                this.pickNextTarget();
+            }
+
+            findNearestNode() {
+                let best = 0, bestDist = Infinity;
+                for (let i = 0; i < graphNodes.length; i++) {
+                    const dx = graphNodes[i].x - this.x, dy = graphNodes[i].y - this.y;
+                    const d = dx * dx + dy * dy;
+                    if (d < bestDist) { bestDist = d; best = i; }
+                }
+                return best;
+            }
+
+            pickNextTarget() {
+                if (graphNodes.length === 0) return;
+                const node = graphNodes[this.targetNodeIdx];
+                if (node && node.neighbors.length > 0) {
+                    // Pick a random neighbor (weighted slightly by density)
+                    const candidates = node.neighbors;
+                    this.nextNodeIdx = candidates[Math.floor(Math.random() * candidates.length)];
+                } else {
+                    // No neighbors — jump to a random node
+                    this.nextNodeIdx = Math.floor(Math.random() * graphNodes.length);
                 }
             }
 
-            for (let i = 0; i < boids.length; i++) {
-                boids[i].applyPhysics(boids);
-                boids[i].draw();
+            update() {
+                if (graphNodes.length === 0) return;
+
+                const target = graphNodes[this.nextNodeIdx];
+                if (!target) return;
+
+                // Steer toward next graph node
+                const dx = target.x - this.x;
+                const dy = target.y - this.y;
+                const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+
+                // Strong but smooth pull toward the target node
+                let steerX = (dx / dist) * 0.06;
+                let steerY = (dy / dist) * 0.06;
+
+                // Also follow local edges while in transit
+                const ix = Math.floor(this.x), iy = Math.floor(this.y);
+                let edgeDx = 0, edgeDy = 0, edgeCount = 0;
+                for (let ox = -8; ox <= 8; ox += 4) {
+                    for (let oy = -8; oy <= 8; oy += 4) {
+                        const cx = ix + ox, cy = iy + oy;
+                        if (cx >= 0 && cx < w && cy >= 0 && cy < h && edgeDataArray[cy * w + cx] === 1) {
+                            edgeDx += ox; edgeDy += oy; edgeCount++;
+                        }
+                    }
+                }
+
+                this.onEdge = edgeCount > 1;
+                if (edgeCount > 0) {
+                    const edist = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy) || 1;
+                    steerX += (edgeDx / edist) * 0.03;
+                    steerY += (edgeDy / edist) * 0.03;
+                }
+
+                // Color sampling
+                if (!config.monochrome && this.onEdge) {
+                    const pI = (iy * w + ix) * 4;
+                    this.color = { r: sourceImgData[pI], g: sourceImgData[pI + 1], b: sourceImgData[pI + 2] };
+                } else if (config.monochrome) {
+                    this.color = { r: 255, g: 255, b: 255 };
+                }
+
+                // Limit steering
+                const sm = Math.sqrt(steerX * steerX + steerY * steerY);
+                if (sm > 0.08) { steerX = steerX / sm * 0.08; steerY = steerY / sm * 0.08; }
+
+                this.vx += steerX; this.vy += steerY;
+                const spd = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                const maxSpd = 2.0;
+                if (spd > maxSpd) { this.vx = this.vx / spd * maxSpd; this.vy = this.vy / spd * maxSpd; }
+
+                this.lx = this.x; this.ly = this.y;
+                this.x += this.vx; this.y += this.vy;
+
+                // Arrival check — reached current target node?
+                if (dist < 10) {
+                    this.targetNodeIdx = this.nextNodeIdx;
+                    this.pickNextTarget();
+                }
+
+                // Wrap
+                if (this.x < 0) { this.x = w; this.lx = w; } if (this.x > w) { this.x = 0; this.lx = 0; }
+                if (this.y < 0) { this.y = h; this.ly = h; } if (this.y > h) { this.y = 0; this.ly = 0; }
             }
-            simulationRaf = requestAnimationFrame(animateSim);
+
+            draw() {
+                let alpha = this.onEdge ? 0.8 : (config.voidMode ? 0 : 0.04);
+                if (alpha > 0) {
+                    simCtx.strokeStyle = `rgba(${this.color.r},${this.color.g},${this.color.b},${alpha})`;
+                    simCtx.lineWidth = this.onEdge ? 1.2 : 0.3;
+                    simCtx.beginPath(); simCtx.moveTo(this.lx, this.ly); simCtx.lineTo(this.x, this.y); simCtx.stroke();
+                }
+            }
+        }
+
+        function animateFlow() {
+            simCtx.fillStyle = 'rgba(0,0,0,0.008)'; simCtx.fillRect(0, 0, w, h);
+            if (isEvolving) runEvolution();
+            for (let i = 0; i < boids.length; i++) { boids[i].update(); boids[i].draw(); }
+            simulationRaf = requestAnimationFrame(animateFlow);
+        }
+
+        // ============================================
+        //  EVOLUTION TIMELINE (shared)
+        // ============================================
+        function runEvolution() {
+            const elapsedSec = (performance.now() - evolveStart) / 1000;
+            const clockEl = document.getElementById('clockDisplay');
+            const phaseEl = document.getElementById('phaseDisplay');
+            if (elapsedSec <= 60) {
+                clockEl.innerText = `${Math.floor(elapsedSec / 60).toString().padStart(2, '0')}:${Math.floor(elapsedSec % 60).toString().padStart(2, '0')}`;
+            }
+            if (elapsedSec < 15) {
+                phaseEl.innerText = "Chaos"; config.smoothness = 0.2; config.maxForce = 0.05;
+                resizeFlock(100);
+            } else if (elapsedSec < 45) {
+                phaseEl.innerText = "Discovery";
+                const p = (elapsedSec - 15) / 30;
+                config.smoothness = 0.2 + p * 0.6; config.maxForce = 0.05 + p * 0.05;
+                resizeFlock(Math.floor(100 + p * 1900));
+            } else if (elapsedSec < 60) {
+                phaseEl.innerText = "Solidification"; config.smoothness = 1.0; config.maxForce = 0.1;
+                resizeFlock(2000);
+            } else { phaseEl.innerText = "Complete"; clockEl.innerText = "01:00"; isEvolving = false; }
         }
 
         function resizeFlock(target) {
-            const numNeg = Math.floor(target * config.negativeRatio);
-            const numPos = target - numNeg;
-            const totalTarget = target;
-
-            while (boids.length < totalTarget) {
-                // Maintain ratio: mostly positive, some negative
-                const isNeg = boids.filter(b => b.isNegative).length < numNeg;
-                boids.push(new Boid(isNeg));
-            }
-            if (boids.length > totalTarget) {
-                boids.length = totalTarget;
-            }
-            // Update config for slider display
-            config.agents = totalTarget;
-            document.getElementById('simAgents').value = totalTarget;
+            const BoidClass = currentMode === 'flow' ? FlowBoid : Boid;
+            while (boids.length < target) boids.push(new BoidClass());
+            if (boids.length > target) boids.length = target;
+            config.agents = target;
+            document.getElementById('simAgents').value = target;
         }
 
-        // Sim UI Controls
-        document.getElementById('simAgents').oninput = (e) => {
-            config.agents = parseInt(e.target.value);
-            resizeFlock(config.agents);
-        };
+        // ============================================
+        //  SIM UI CONTROLS
+        // ============================================
+        document.getElementById('simAgents').oninput = (e) => { config.agents = parseInt(e.target.value); if (currentMode !== 'pen') resizeFlock(config.agents); };
+        document.getElementById('simSmoothness').oninput = (e) => { config.smoothness = parseInt(e.target.value) / 10; };
+        document.getElementById('simVoidToggle').onchange = (e) => { config.voidMode = e.target.checked; };
+        document.getElementById('monochromeToggle').onchange = (e) => { config.monochrome = e.target.checked; };
+        document.getElementById('evolveBtn').onclick = () => { if (currentMode === 'pen') return; isEvolving = true; evolveStart = performance.now(); };
+        document.getElementById('clearSimBtn').onclick = () => { const bg = currentMode === 'pen' ? '#f5f0eb' : '#000'; simCtx.fillStyle = bg; simCtx.fillRect(0, 0, w, h); };
+        document.getElementById('exportBtn').onclick = () => { const l = document.createElement('a'); l.download = `swarm-${currentMode}-${Date.now()}.png`; l.href = simCanvas.toDataURL('image/png', 1.0); l.click(); };
 
-        document.getElementById('simSmoothness').oninput = (e) => {
-            config.smoothness = parseInt(e.target.value) / 10;
-        };
-
-        document.getElementById('simVoidToggle').onchange = (e) => {
-            config.voidMode = e.target.checked;
-        };
-
-        document.getElementById('monochromeToggle').onchange = (e) => {
-            config.monochrome = e.target.checked;
-        };
-
-        document.getElementById('evolveBtn').onclick = () => {
-            isEvolving = true;
-            evolveStart = performance.now();
-            document.getElementById('simClock').style.opacity = '1';
-        };
-
-        document.getElementById('clearSimBtn').onclick = () => {
-            simCtx.fillStyle = '#000';
-            simCtx.fillRect(0, 0, w, h);
-        };
-
-        document.getElementById('exportBtn').onclick = () => {
-            const link = document.createElement('a');
-            link.download = `swarm-art-${Date.now()}.png`;
-            link.href = simCanvas.toDataURL('image/png', 1.0);
-            link.click();
-        };
+        // Mode switch buttons
+        document.getElementById('modeSwarmBtn').onclick = () => { if (edgeDataArray) startMode('swarm'); };
+        document.getElementById('modePenBtn').onclick = () => { if (edgeDataArray) startMode('pen'); };
+        document.getElementById('modeFlowBtn').onclick = () => { if (edgeDataArray) startMode('flow'); };
 
     </script>
 </body>
