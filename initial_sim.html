@@ -469,8 +469,9 @@
 
         <div class="floating-panel" id="bottomBar">
             <button class="btn" id="pauseBtn">Pause</button>
+            <button class="btn" id="autoDrawBtn">Auto Draw</button>
             <button class="btn" id="wipeBtn">Wipe</button>
-            <button class="btn" id="toggleErrorBtn">Show Error Map</button>
+            <button class="btn" id="toggleErrorBtn">Error Map</button>
             <div class="sep"></div>
             <button class="btn btn-primary" id="exportBtn">Export PNG</button>
         </div>
@@ -557,10 +558,11 @@
                     class="tip">?<span class="tiptext">How much error is reduced per stroke. Lower = pen revisits areas
                         more.</span></span></div>
 
-            <h3>📊 Phases</h3>
-            <div class="dev-row"><label>Auto-Phase</label><input type="checkbox" id="p-autoPhase" checked
-                    style="accent-color:var(--accent);"><span class="tip">?<span class="tiptext">Automatically progress
-                        through Outline → Structure → Detail → Refine phases.</span></span></div>
+            <h3>⏱ Auto Draw</h3>
+            <div class="dev-row"><label>Duration (s)</label><input type="range" id="p-autoDuration" min="30" max="600"
+                    step="10" value="180"><span class="dev-val" id="v-autoDuration">180</span><span class="tip">?<span
+                        class="tiptext">Total time in seconds for Auto Draw to complete all 4 phases.</span></span>
+            </div>
         </div>
     </div>
 
@@ -582,9 +584,12 @@
         let originalImg = null;
         let w, h;
         let simulationRaf;
-        let faceMask = null;
+        let faceWeight = null; // Float32Array: 0.0 (outside) to 1.0 (inside face) — soft feathered
         let isPaused = false;
         let simStartTime = 0;
+        let savedCanvasData = null; // For error map toggle restore
+        let isAutoDrawing = false;
+        let autoDuration = 180; // seconds
 
         // === 3 PRE-COMPUTED MAPS ===
         let darknessMap = null;   // Float32Array: 0.0 (white) to 1.0 (black)
@@ -605,8 +610,7 @@
             lineWidthMin: 0.2, lineWidthMax: 1.8,
             alphaMin: 0.03, alphaMax: 0.7,
             borderMargin: 25, borderPush: 0.04,
-            decayRadius: 5, decayAmount: 0.008,
-            autoPhase: true
+            decayRadius: 5, decayAmount: 0.008
         };
 
         // ============================================
@@ -619,18 +623,18 @@
         faceMeshInstance.onResults((results) => {
             if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
                 storedLandmarks = results.multiFaceLandmarks[0];
-                buildFaceMask(storedLandmarks);
+                buildSoftFaceMask(storedLandmarks);
                 console.log("Face detected.");
             } else {
                 console.warn("No face detected. Using full image.");
-                faceMask = new Uint8Array(w * h).fill(1);
+                faceWeight = new Float32Array(w * h).fill(1.0);
             }
             generateEdges();
             setView('edit');
         });
 
-        function buildFaceMask(landmarks) {
-            faceMask = new Uint8Array(w * h);
+        function buildSoftFaceMask(landmarks) {
+            // Step 1: Draw sharp face polygon
             const mc = document.createElement('canvas'); mc.width = w; mc.height = h;
             const mCtx = mc.getContext('2d');
             let ovalIndices = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109];
@@ -642,7 +646,7 @@
             let cx = 0, cy = 0;
             ovalIndices.forEach(idx => { cx += landmarks[idx].x * w; cy += landmarks[idx].y * h; });
             cx /= ovalIndices.length; cy /= ovalIndices.length;
-            const padding = 1.15;
+            const padding = 1.2; // Slightly larger than before
             mCtx.fillStyle = '#fff'; mCtx.beginPath();
             ovalIndices.forEach((idx, i) => {
                 let px = cx + (landmarks[idx].x * w - cx) * padding;
@@ -650,8 +654,20 @@
                 if (i === 0) mCtx.moveTo(px, py); else mCtx.lineTo(px, py);
             });
             mCtx.closePath(); mCtx.fill();
-            const maskData = mCtx.getImageData(0, 0, w, h).data;
-            for (let i = 0; i < maskData.length; i += 4) faceMask[i / 4] = maskData[i] > 128 ? 1 : 0;
+
+            // Step 2: Gaussian blur the mask for soft feathering
+            const blurCanvas = document.createElement('canvas'); blurCanvas.width = w; blurCanvas.height = h;
+            const bCtx = blurCanvas.getContext('2d');
+            bCtx.filter = 'blur(45px)'; // ~45px feather radius
+            bCtx.drawImage(mc, 0, 0);
+
+            // Step 3: Read blurred values as float weights
+            const blurData = bCtx.getImageData(0, 0, w, h).data;
+            faceWeight = new Float32Array(w * h);
+            for (let i = 0; i < blurData.length; i += 4) {
+                faceWeight[i / 4] = blurData[i] / 255.0; // 0.0 to 1.0 smooth gradient
+            }
+            console.log('Soft face mask built with 45px feather.');
         }
 
         // ============================================
@@ -710,10 +726,13 @@
                     const vg = -luma[(y - 1) * w + (x - 1)] - 2 * luma[(y - 1) * w + x] - luma[(y - 1) * w + (x + 1)] + luma[(y + 1) * w + (x - 1)] + 2 * luma[(y + 1) * w + x] + luma[(y + 1) * w + (x + 1)];
                     const val = Math.sqrt(hg * hg + vg * vg);
                     const pi = idx * 4;
-                    const inside = faceMask ? faceMask[idx] === 1 : true;
-                    const thresh = inside ? config.edgeThreshold * 0.7 : config.edgeThreshold * 2.0;
-                    if (val > thresh) { const b = inside ? 255 : 120; edges[pi] = b; edges[pi + 1] = b; edges[pi + 2] = b; edges[pi + 3] = 255; }
-                    else { edges[pi] = 0; edges[pi + 1] = 0; edges[pi + 2] = 0; edges[pi + 3] = 255; }
+                    const fw = faceWeight ? faceWeight[idx] : 1.0;
+                    // Smooth threshold: lower inside face (more detail), higher outside
+                    const thresh = config.edgeThreshold * (0.7 + (1.0 - fw) * 1.3);
+                    if (val > thresh) {
+                        const b = Math.floor(80 + fw * 175); // Smooth brightness fade
+                        edges[pi] = b; edges[pi + 1] = b; edges[pi + 2] = b; edges[pi + 3] = 255;
+                    } else { edges[pi] = 0; edges[pi + 1] = 0; edges[pi + 2] = 0; edges[pi + 3] = 255; }
                 }
             }
             editCtx.putImageData(new ImageData(edges, w, h), 0, 0);
@@ -748,16 +767,16 @@
         function buildMaps() {
             const n = w * h;
 
-            // 1) DARKNESS MAP from grayscale of source image
+            // 1) DARKNESS MAP from grayscale — soft-blended with face weight
             darknessMap = new Float32Array(n);
             for (let i = 0; i < n; i++) {
                 const pi = i * 4;
                 const lum = sourceImgData[pi] * 0.21 + sourceImgData[pi + 1] * 0.72 + sourceImgData[pi + 2] * 0.07;
-                darknessMap[i] = 1.0 - (lum / 255.0);
-                // Boost inside face mask
-                if (faceMask && faceMask[i] === 0) {
-                    darknessMap[i] *= 0.3; // Dim areas outside face
-                }
+                let darkness = 1.0 - (lum / 255.0);
+                // Soft blend: inside face = full darkness, outside = fades smoothly
+                const fw = faceWeight ? faceWeight[i] : 1.0;
+                darkness *= (0.12 + fw * 0.88); // Smooth: center=100%, far outside=12%
+                darknessMap[i] = darkness;
             }
 
             // 2) FLOW FIELD from Sobel gradient (rotated 90° = along contours)
@@ -952,39 +971,74 @@
             animatePen();
         }
 
+        // ============================================
+        //  AUTOMATION TIMELINE (keyframe interpolation)
+        // ============================================
+        const autoKeyframes = [
+            { t: 0.00, label: 'Ghost', maxSpeed: 6, stepsPerFrame: 15, wanderRate: 0.3, wanderForce: 0.018, errorPull: 0.04, searchRadius: 60, searchStep: 5, flowStrength: 0.03, dwellFactor: 0.3, repulsion: 0.01, lineWidthMin: 0.15, lineWidthMax: 0.4, alphaMin: 0.02, alphaMax: 0.08, borderMargin: 25, borderPush: 0.04, decayRadius: 6, decayAmount: 0.012 },
+            { t: 0.15, label: 'Structure', maxSpeed: 4, stepsPerFrame: 15, wanderRate: 0.35, wanderForce: 0.02, errorPull: 0.06, searchRadius: 50, searchStep: 4, flowStrength: 0.04, dwellFactor: 0.6, repulsion: 0.015, lineWidthMin: 0.15, lineWidthMax: 0.6, alphaMin: 0.02, alphaMax: 0.2, borderMargin: 25, borderPush: 0.04, decayRadius: 5, decayAmount: 0.010 },
+            { t: 0.45, label: 'Detail', maxSpeed: 2.5, stepsPerFrame: 12, wanderRate: 0.4, wanderForce: 0.02, errorPull: 0.10, searchRadius: 35, searchStep: 4, flowStrength: 0.05, dwellFactor: 1.2, repulsion: 0.02, lineWidthMin: 0.2, lineWidthMax: 1.2, alphaMin: 0.03, alphaMax: 0.5, borderMargin: 25, borderPush: 0.04, decayRadius: 5, decayAmount: 0.007 },
+            { t: 0.80, label: 'Refine', maxSpeed: 1.5, stepsPerFrame: 8, wanderRate: 0.5, wanderForce: 0.025, errorPull: 0.12, searchRadius: 20, searchStep: 3, flowStrength: 0.05, dwellFactor: 2.0, repulsion: 0.025, lineWidthMin: 0.2, lineWidthMax: 1.8, alphaMin: 0.03, alphaMax: 0.7, borderMargin: 25, borderPush: 0.04, decayRadius: 4, decayAmount: 0.004 },
+            { t: 1.00, label: 'Complete', maxSpeed: 1.5, stepsPerFrame: 8, wanderRate: 0.5, wanderForce: 0.025, errorPull: 0.12, searchRadius: 20, searchStep: 3, flowStrength: 0.05, dwellFactor: 2.0, repulsion: 0.025, lineWidthMin: 0.2, lineWidthMax: 1.8, alphaMin: 0.03, alphaMax: 0.7, borderMargin: 25, borderPush: 0.04, decayRadius: 4, decayAmount: 0.004 }
+        ];
+
+        function lerpKeys(a, b, t) {
+            const result = {};
+            for (const key in a) {
+                if (key === 't' || key === 'label') continue;
+                result[key] = a[key] + (b[key] - a[key]) * t;
+            }
+            return result;
+        }
+
+        function applyAutoTimeline(elapsed) {
+            const progress = Math.min(elapsed / autoDuration, 1.0);
+            // Find keyframe pair
+            let a = autoKeyframes[0], b = autoKeyframes[1];
+            for (let i = 0; i < autoKeyframes.length - 1; i++) {
+                if (progress >= autoKeyframes[i].t && progress <= autoKeyframes[i + 1].t) {
+                    a = autoKeyframes[i]; b = autoKeyframes[i + 1]; break;
+                }
+            }
+            const segT = (b.t - a.t) > 0 ? (progress - a.t) / (b.t - a.t) : 0;
+            const vals = lerpKeys(a, b, segT);
+
+            // Apply to pen config
+            for (const key in vals) { pen[key] = vals[key]; }
+
+            // Update slider displays
+            for (const key in vals) {
+                const el = document.getElementById('p-' + key);
+                const vEl = document.getElementById('v-' + key);
+                if (el) el.value = vals[key];
+                if (vEl) vEl.innerText = vals[key] % 1 === 0 ? vals[key] : vals[key].toFixed(3);
+            }
+
+            // Phase label
+            const phaseEl = document.getElementById('phaseDisplay');
+            phaseEl.innerText = a.label;
+
+            if (progress >= 1.0) {
+                isAutoDrawing = false;
+                phaseEl.innerText = 'Complete';
+                document.getElementById('autoDrawBtn').innerText = 'Auto Draw';
+            }
+        }
+
         function animatePen() {
             if (!isPaused && activePen) {
-                // Multi-phase progression
-                if (pen.autoPhase) {
+                if (isAutoDrawing) {
                     const elapsed = (performance.now() - simStartTime) / 1000;
-                    applyPhase(elapsed);
+                    applyAutoTimeline(elapsed);
                 }
 
                 for (let i = 0; i < pen.stepsPerFrame; i++) {
                     activePen.update();
                     activePen.draw();
                 }
-
-                // Update status
                 updateStatus();
             }
             simulationRaf = requestAnimationFrame(animatePen);
-        }
-
-        function applyPhase(sec) {
-            const phaseEl = document.getElementById('phaseDisplay');
-            // Total ~120 seconds for full drawing
-            if (sec < 20) {
-                // OUTLINE: fast, low detail, wide search, following edges
-                phaseEl.innerText = "Outline";
-                // Don't override user sliders continuously — just set once at phase boundary
-            } else if (sec < 60) {
-                phaseEl.innerText = "Structure";
-            } else if (sec < 100) {
-                phaseEl.innerText = "Detail";
-            } else {
-                phaseEl.innerText = "Refine";
-            }
         }
 
         function updateStatus() {
@@ -1013,36 +1067,55 @@
             document.getElementById('pauseBtn').innerText = isPaused ? 'Resume' : 'Pause';
         };
 
+        document.getElementById('autoDrawBtn').onclick = () => {
+            if (isAutoDrawing) {
+                isAutoDrawing = false;
+                document.getElementById('autoDrawBtn').innerText = 'Auto Draw';
+            } else {
+                isAutoDrawing = true;
+                simStartTime = performance.now();
+                document.getElementById('autoDrawBtn').innerText = 'Stop Auto';
+                isPaused = false;
+                document.getElementById('pauseBtn').innerText = 'Pause';
+            }
+        };
+
         document.getElementById('wipeBtn').onclick = () => {
             simCtx.fillStyle = '#f5f0eb';
             simCtx.fillRect(0, 0, w, h);
-            // Reset error map
-            if (darknessMap) {
-                for (let i = 0; i < darknessMap.length; i++) errorMap[i] = darknessMap[i];
-            }
+            if (darknessMap) { for (let i = 0; i < darknessMap.length; i++) errorMap[i] = darknessMap[i]; }
             activePen = new ChaoticPen();
             simStartTime = performance.now();
+            showErrorOverlay = false;
+            savedCanvasData = null;
+            document.getElementById('toggleErrorBtn').innerText = 'Error Map';
         };
 
         document.getElementById('toggleErrorBtn').onclick = () => {
             showErrorOverlay = !showErrorOverlay;
-            document.getElementById('toggleErrorBtn').innerText = showErrorOverlay ? 'Hide Error Map' : 'Show Error Map';
+            document.getElementById('toggleErrorBtn').innerText = showErrorOverlay ? 'Hide Error' : 'Error Map';
             if (showErrorOverlay && errorMap) {
+                // SAVE current canvas before overlaying
+                isPaused = true;
+                document.getElementById('pauseBtn').innerText = 'Resume';
+                savedCanvasData = simCtx.getImageData(0, 0, w, h);
                 // Draw error map overlay
-                const imgData = simCtx.getImageData(0, 0, w, h);
+                const imgData = simCtx.createImageData(w, h);
                 for (let i = 0; i < errorMap.length; i++) {
                     const pi = i * 4;
                     const e = errorMap[i];
-                    // Red channel = error intensity
                     imgData.data[pi] = Math.floor(e * 255);
-                    imgData.data[pi + 1] = 0;
-                    imgData.data[pi + 2] = Math.floor((1 - e) * 100);
+                    imgData.data[pi + 1] = Math.floor(e * 40);
+                    imgData.data[pi + 2] = Math.floor((1 - e) * 60);
                     imgData.data[pi + 3] = 255;
                 }
                 simCtx.putImageData(imgData, 0, 0);
-            } else {
-                // Restart drawing from scratch on the current canvas
-                // (just unpause effectively)
+            } else if (savedCanvasData) {
+                // RESTORE the saved drawing
+                simCtx.putImageData(savedCanvasData, 0, 0);
+                savedCanvasData = null;
+                isPaused = false;
+                document.getElementById('pauseBtn').innerText = 'Pause';
             }
         };
 
@@ -1081,7 +1154,9 @@
         wire('alphaMin', 'alphaMin'); wire('alphaMax', 'alphaMax');
         wire('borderMargin', 'borderMargin'); wire('borderPush', 'borderPush');
         wire('decayRadius', 'decayRadius'); wire('decayAmount', 'decayAmount');
-        wire('autoPhase', 'autoPhase');
+        // Duration slider
+        const durEl = document.getElementById('p-autoDuration');
+        if (durEl) durEl.oninput = (e) => { autoDuration = parseInt(e.target.value); document.getElementById('v-autoDuration').innerText = autoDuration; };
 
     </script>
 </body>
