@@ -263,6 +263,108 @@
             background: #333;
             margin: 0 4px;
         }
+
+        /* Bottom bar collapse */
+        .floating-panel.collapsed {
+            display: none !important;
+        }
+
+        .collapse-toggle {
+            position: absolute;
+            bottom: 2rem;
+            right: 2rem;
+            z-index: 110;
+            background: var(--panel);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: var(--dim);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: all 0.2s;
+        }
+
+        .collapse-toggle:hover {
+            color: var(--accent);
+            border-color: var(--accent);
+        }
+
+        /* Right Dev Panel */
+        .dev-panel {
+            position: absolute;
+            top: 60px;
+            right: 0;
+            bottom: 80px;
+            width: 260px;
+            background: rgba(10, 10, 14, 0.92);
+            backdrop-filter: blur(12px);
+            border-left: 1px solid rgba(255, 255, 255, 0.06);
+            z-index: 90;
+            overflow-y: auto;
+            padding: 1rem 1rem 2rem;
+            display: none;
+            scrollbar-width: thin;
+            scrollbar-color: #333 transparent;
+        }
+
+        .dev-panel.visible {
+            display: block;
+        }
+
+        .dev-panel::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .dev-panel::-webkit-scrollbar-thumb {
+            background: #333;
+            border-radius: 2px;
+        }
+
+        .dev-panel h3 {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: var(--accent);
+            margin: 1rem 0 0.5rem;
+            padding-bottom: 0.3rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .dev-panel h3:first-child {
+            margin-top: 0;
+        }
+
+        .dev-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.6rem;
+        }
+
+        .dev-row label {
+            font-size: 0.55rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--dim);
+            flex: 1;
+        }
+
+        .dev-row input[type="range"] {
+            width: 80px;
+        }
+
+        .dev-row .dev-val {
+            font-family: monospace;
+            font-size: 0.6rem;
+            color: var(--accent);
+            width: 40px;
+            text-align: right;
+        }
     </style>
 </head>
 
@@ -345,6 +447,62 @@
             <button class="btn" id="evolveBtn">1-Min Evolve</button>
             <button class="btn" id="clearSimBtn">Wipe</button>
             <button class="btn btn-primary" id="exportBtn">Export</button>
+        </div>
+        <button class="collapse-toggle" id="collapseBtn" title="Toggle bottom bar">▼</button>
+
+        <!-- PEN DEV PANEL (right side) -->
+        <div class="dev-panel" id="penDevPanel">
+            <h3>⚡ Speed & Motion</h3>
+            <div class="dev-row"><label>Max Speed</label><input type="range" id="pen-maxSpeed" min="0.5" max="20"
+                    step="0.5" value="10"><span class="dev-val" id="pv-maxSpeed">10</span></div>
+            <div class="dev-row"><label>Steps/Frame</label><input type="range" id="pen-stepsPerFrame" min="1" max="30"
+                    step="1" value="8"><span class="dev-val" id="pv-stepsPerFrame">8</span></div>
+            <div class="dev-row"><label>Wander Rate</label><input type="range" id="pen-wanderRate" min="0.01" max="1.0"
+                    step="0.01" value="0.30"><span class="dev-val" id="pv-wanderRate">0.30</span></div>
+            <div class="dev-row"><label>Wander Force</label><input type="range" id="pen-wanderForce" min="0.001"
+                    max="0.1" step="0.001" value="0.015"><span class="dev-val" id="pv-wanderForce">0.015</span></div>
+
+            <h3>🧲 Magnetism</h3>
+            <div class="dev-row"><label>Pull Force</label><input type="range" id="pen-magnetPull" min="0.005" max="0.2"
+                    step="0.005" value="0.04"><span class="dev-val" id="pv-magnetPull">0.04</span></div>
+            <div class="dev-row"><label>Strength Min</label><input type="range" id="pen-magnetStrMin" min="0.05"
+                    max="1.0" step="0.05" value="0.50"><span class="dev-val" id="pv-magnetStrMin">0.50</span></div>
+            <div class="dev-row"><label>Strength Range</label><input type="range" id="pen-magnetStrRange" min="0.0"
+                    max="1.0" step="0.05" value="0.50"><span class="dev-val" id="pv-magnetStrRange">0.50</span></div>
+            <div class="dev-row"><label>ON Duration Min</label><input type="range" id="pen-magnetOnMin" min="10"
+                    max="500" step="10" value="100"><span class="dev-val" id="pv-magnetOnMin">100</span></div>
+            <div class="dev-row"><label>ON Duration Range</label><input type="range" id="pen-magnetOnRange" min="0"
+                    max="1000" step="10" value="600"><span class="dev-val" id="pv-magnetOnRange">600</span></div>
+            <div class="dev-row"><label>OFF Cool Min</label><input type="range" id="pen-magnetOffMin" min="5" max="200"
+                    step="5" value="40"><span class="dev-val" id="pv-magnetOffMin">40</span></div>
+            <div class="dev-row"><label>OFF Cool Range</label><input type="range" id="pen-magnetOffRange" min="0"
+                    max="300" step="5" value="10"><span class="dev-val" id="pv-magnetOffRange">10</span></div>
+
+            <h3>🔍 Edge Detection</h3>
+            <div class="dev-row"><label>Search Radius (ON)</label><input type="range" id="pen-searchRadiusOn" min="5"
+                    max="80" step="1" value="35"><span class="dev-val" id="pv-searchRadiusOn">35</span></div>
+            <div class="dev-row"><label>Search Radius (OFF)</label><input type="range" id="pen-searchRadiusOff" min="2"
+                    max="40" step="1" value="10"><span class="dev-val" id="pv-searchRadiusOff">10</span></div>
+            <div class="dev-row"><label>Search Step</label><input type="range" id="pen-searchStep" min="1" max="8"
+                    step="1" value="4"><span class="dev-val" id="pv-searchStep">4</span></div>
+            <div class="dev-row"><label>Near Threshold</label><input type="range" id="pen-nearThreshold" min="1"
+                    max="10" step="1" value="2"><span class="dev-val" id="pv-nearThreshold">2</span></div>
+            <div class="dev-row"><label>Near Radius</label><input type="range" id="pen-nearRadius" min="1" max="8"
+                    step="1" value="3"><span class="dev-val" id="pv-nearRadius">3</span></div>
+
+            <h3>✏️ Line Style</h3>
+            <div class="dev-row"><label>On-Edge Width</label><input type="range" id="pen-lineWidthOn" min="0.1" max="5"
+                    step="0.1" value="1.0"><span class="dev-val" id="pv-lineWidthOn">1.0</span></div>
+            <div class="dev-row"><label>Off-Edge Width</label><input type="range" id="pen-lineWidthOff" min="0.05"
+                    max="3" step="0.05" value="0.80"><span class="dev-val" id="pv-lineWidthOff">0.80</span></div>
+            <div class="dev-row"><label>On-Edge Alpha</label><input type="range" id="pen-alphaOn" min="0.05" max="1.0"
+                    step="0.05" value="0.90"><span class="dev-val" id="pv-alphaOn">0.90</span></div>
+            <div class="dev-row"><label>Off-Edge Alpha</label><input type="range" id="pen-alphaOff" min="0.005"
+                    max="0.3" step="0.005" value="0.010"><span class="dev-val" id="pv-alphaOff">0.010</span></div>
+            <div class="dev-row"><label>Border Margin</label><input type="range" id="pen-borderMargin" min="5" max="100"
+                    step="5" value="30"><span class="dev-val" id="pv-borderMargin">30</span></div>
+            <div class="dev-row"><label>Border Push</label><input type="range" id="pen-borderPush" min="0.005" max="0.1"
+                    step="0.005" value="0.030"><span class="dev-val" id="pv-borderPush">0.030</span></div>
         </div>
     </div>
 
@@ -591,6 +749,10 @@
             document.getElementById('modePenBtn').className = mode === 'pen' ? 'btn active-toggle' : 'btn';
             document.getElementById('modeFlowBtn').className = mode === 'flow' ? 'btn active-toggle' : 'btn';
 
+            // Show/hide pen dev panel
+            const dp = document.getElementById('penDevPanel');
+            if (dp) { mode === 'pen' ? dp.classList.add('visible') : dp.classList.remove('visible'); }
+
             if (mode === 'swarm') {
                 simCtx.fillStyle = '#000'; simCtx.fillRect(0, 0, w, h);
                 boids = [];
@@ -685,115 +847,111 @@
 
         // ============================================
         //  MODE 2: SINGLE PEN (Continuous Line Art)
+        //  All params driven from penCfg (wired to dev panel)
         // ============================================
+        const penCfg = {
+            maxSpeed: 10, stepsPerFrame: 8,
+            wanderRate: 0.30, wanderForce: 0.015,
+            magnetPull: 0.04, magnetStrMin: 0.50, magnetStrRange: 0.50,
+            magnetOnMin: 100, magnetOnRange: 600,
+            magnetOffMin: 40, magnetOffRange: 10,
+            searchRadiusOn: 35, searchRadiusOff: 10, searchStep: 4,
+            nearThreshold: 2, nearRadius: 3,
+            lineWidthOn: 1.0, lineWidthOff: 0.80,
+            alphaOn: 0.90, alphaOff: 0.010,
+            borderMargin: 30, borderPush: 0.030
+        };
+
         class SinglePen {
             constructor() {
                 this.x = w / 2; this.y = h / 2;
                 this.vx = 1.5; this.vy = 0.5;
                 this.lx = this.x; this.ly = this.y;
-                this.maxSpeed = 2.0;
-
-                // Pulsing magnetism system
                 this.magnetismOn = false;
                 this.magnetTimer = 0;
-                this.magnetDuration = 150; // frames this pulse lasts
-                this.magnetCooldown = 80;  // frames between pulses
                 this.frameCount = 0;
-                this.magnetStrength = 0;   // current strength (smooth ramp)
-
-                // Gentle curve memory (Perlin-like wander)
-                this.wanderAngle = Math.random() * Math.PI * 2;
+                this.magnetStrength = 0;
+                this.wanderAngle = Math.random() * Math.PI * 3;
+                this.onEdge = false;
             }
 
             update() {
                 this.frameCount++;
                 let steerX = 0, steerY = 0;
 
-                // --- Pulsing Magnetism Logic ---
-                // Cycle: ON for magnetDuration, OFF for magnetCooldown (randomized)
+                // --- Pulsing Magnetism ---
                 this.magnetTimer--;
                 if (this.magnetTimer <= 0) {
                     this.magnetismOn = !this.magnetismOn;
                     if (this.magnetismOn) {
-                        this.magnetDuration = 100 + Math.random() * 200; // 100-300 frames ON
-                        this.magnetTimer = this.magnetDuration;
-                        this.magnetStrength = 0.3 + Math.random() * 0.5; // Random strength each pulse
+                        this.magnetTimer = penCfg.magnetOnMin + Math.random() * penCfg.magnetOnRange;
+                        this.magnetStrength = penCfg.magnetStrMin + Math.random() * penCfg.magnetStrRange;
                     } else {
-                        this.magnetCooldown = 40 + Math.random() * 120; // 40-160 frames OFF
-                        this.magnetTimer = this.magnetCooldown;
+                        this.magnetTimer = penCfg.magnetOffMin + Math.random() * penCfg.magnetOffRange;
                     }
                 }
 
-                // --- Edge Seeking (when magnetism is ON) ---
+                // --- Edge Seeking ---
                 const ix = Math.floor(this.x), iy = Math.floor(this.y);
                 let foundEdge = false, bestDx = 0, bestDy = 0;
                 this.onEdge = false;
-
-                // Larger search radius for pen (sees farther)
-                const searchR = this.magnetismOn ? 35 : 10;
-                for (let ox = -searchR; ox <= searchR; ox += 4) {
-                    for (let oy = -searchR; oy <= searchR; oy += 4) {
+                const searchR = this.magnetismOn ? penCfg.searchRadiusOn : penCfg.searchRadiusOff;
+                const step = penCfg.searchStep;
+                for (let ox = -searchR; ox <= searchR; ox += step) {
+                    for (let oy = -searchR; oy <= searchR; oy += step) {
                         const cx = ix + ox, cy = iy + oy;
                         if (cx >= 0 && cx < w && cy >= 0 && cy < h && edgeDataArray[cy * w + cx] === 1) {
-                            foundEdge = true;
-                            bestDx += ox; bestDy += oy;
+                            foundEdge = true; bestDx += ox; bestDy += oy;
                         }
                     }
                 }
-
                 if (foundEdge) {
-                    // Check if we're RIGHT on the edge (close proximity)
                     let nearCount = 0;
-                    for (let ox = -3; ox <= 3; ox++) {
-                        for (let oy = -3; oy <= 3; oy++) {
+                    const nr = penCfg.nearRadius;
+                    for (let ox = -nr; ox <= nr; ox++) {
+                        for (let oy = -nr; oy <= nr; oy++) {
                             const cx = ix + ox, cy = iy + oy;
                             if (cx >= 0 && cx < w && cy >= 0 && cy < h && edgeDataArray[cy * w + cx] === 1) nearCount++;
                         }
                     }
-                    this.onEdge = nearCount > 2;
-
+                    this.onEdge = nearCount > penCfg.nearThreshold;
                     if (this.magnetismOn) {
                         const dist = Math.sqrt(bestDx * bestDx + bestDy * bestDy) || 1;
-                        steerX += (bestDx / dist) * this.magnetStrength * 0.04;
-                        steerY += (bestDy / dist) * this.magnetStrength * 0.04;
+                        steerX += (bestDx / dist) * this.magnetStrength * penCfg.magnetPull;
+                        steerY += (bestDy / dist) * this.magnetStrength * penCfg.magnetPull;
                     }
                 }
 
-                // --- Perlin-like Smooth Wander ---
-                this.wanderAngle += (Math.random() - 0.5) * 0.3;
-                steerX += Math.cos(this.wanderAngle) * 0.015;
-                steerY += Math.sin(this.wanderAngle) * 0.015;
+                // --- Wander ---
+                this.wanderAngle += (Math.random() - 0.5) * penCfg.wanderRate;
+                steerX += Math.cos(this.wanderAngle) * penCfg.wanderForce;
+                steerY += Math.sin(this.wanderAngle) * penCfg.wanderForce;
 
-                // --- Border Avoidance (gentle push back) ---
-                const margin = 30;
-                if (this.x < margin) steerX += 0.03;
-                if (this.x > w - margin) steerX -= 0.03;
-                if (this.y < margin) steerY += 0.03;
-                if (this.y > h - margin) steerY -= 0.03;
+                // --- Border Avoidance ---
+                const m = penCfg.borderMargin;
+                const bp = penCfg.borderPush;
+                if (this.x < m) steerX += bp;
+                if (this.x > w - m) steerX -= bp;
+                if (this.y < m) steerY += bp;
+                if (this.y > h - m) steerY -= bp;
 
-                // Apply forces
                 this.vx += steerX; this.vy += steerY;
                 const spd = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-                if (spd > this.maxSpeed) {
-                    this.vx = (this.vx / spd) * this.maxSpeed;
-                    this.vy = (this.vy / spd) * this.maxSpeed;
+                if (spd > penCfg.maxSpeed) {
+                    this.vx = (this.vx / spd) * penCfg.maxSpeed;
+                    this.vy = (this.vy / spd) * penCfg.maxSpeed;
                 }
-
                 this.lx = this.x; this.ly = this.y;
                 this.x += this.vx; this.y += this.vy;
-
-                // Hard clamp to canvas
                 this.x = Math.max(0, Math.min(w, this.x));
                 this.y = Math.max(0, Math.min(h, this.y));
             }
 
             draw() {
-                // Thin when wandering, THICK when on edge
-                const lineWidth = this.onEdge ? 1.8 : 0.3;
-                const alpha = this.onEdge ? 0.9 : 0.15;
-
-                simCtx.strokeStyle = `rgba(20, 15, 10, ${alpha})`; // Near-black ink
-                simCtx.lineWidth = lineWidth;
+                const lw = this.onEdge ? penCfg.lineWidthOn : penCfg.lineWidthOff;
+                const alpha = this.onEdge ? penCfg.alphaOn : penCfg.alphaOff;
+                simCtx.strokeStyle = `rgba(20, 15, 10, ${alpha})`;
+                simCtx.lineWidth = lw;
                 simCtx.lineCap = 'round';
                 simCtx.beginPath();
                 simCtx.moveTo(this.lx, this.ly);
@@ -803,12 +961,9 @@
         }
 
         function animatePen() {
-            // No background fade for pen mode (permanent ink on white paper)
             if (singlePen) {
-                // Run multiple steps per frame for faster coverage
-                for (let i = 0; i < 8; i++) {
-                    singlePen.update();
-                    singlePen.draw();
+                for (let i = 0; i < penCfg.stepsPerFrame; i++) {
+                    singlePen.update(); singlePen.draw();
                 }
             }
             simulationRaf = requestAnimationFrame(animatePen);
@@ -991,6 +1146,66 @@
         document.getElementById('modeSwarmBtn').onclick = () => { if (edgeDataArray) startMode('swarm'); };
         document.getElementById('modePenBtn').onclick = () => { if (edgeDataArray) startMode('pen'); };
         document.getElementById('modeFlowBtn').onclick = () => { if (edgeDataArray) startMode('flow'); };
+
+        // ============================================
+        //  COLLAPSE TOGGLE (bottom bar)
+        // ============================================
+        const collapseBtn = document.getElementById('collapseBtn');
+        if (collapseBtn) {
+            collapseBtn.onclick = () => {
+                const panels = document.querySelectorAll('#view-sim .floating-panel');
+                panels.forEach(p => p.classList.toggle('collapsed'));
+                collapseBtn.innerText = panels[0]?.classList.contains('collapsed') ? '▲' : '▼';
+            };
+        }
+
+        // ============================================
+        //  PEN DEV PANEL WIRING
+        // ============================================
+        const penPanel = document.getElementById('penDevPanel');
+
+        // Show/hide dev panel based on mode
+        const origStartMode = startMode;
+        // Override startMode to toggle panel visibility
+        (function () {
+            const _origStart = startMode;
+            // We can't reassign const, so use event-based approach instead
+        })();
+
+        // Wire all pen sliders to penCfg
+        function wirePenSlider(id, key) {
+            const el = document.getElementById('pen-' + id);
+            const valEl = document.getElementById('pv-' + id);
+            if (!el || !valEl) return;
+            el.oninput = (e) => {
+                const v = parseFloat(e.target.value);
+                penCfg[key] = v;
+                valEl.innerText = v % 1 === 0 ? v : v.toFixed(3);
+            };
+        }
+
+        wirePenSlider('maxSpeed', 'maxSpeed');
+        wirePenSlider('stepsPerFrame', 'stepsPerFrame');
+        wirePenSlider('wanderRate', 'wanderRate');
+        wirePenSlider('wanderForce', 'wanderForce');
+        wirePenSlider('magnetPull', 'magnetPull');
+        wirePenSlider('magnetStrMin', 'magnetStrMin');
+        wirePenSlider('magnetStrRange', 'magnetStrRange');
+        wirePenSlider('magnetOnMin', 'magnetOnMin');
+        wirePenSlider('magnetOnRange', 'magnetOnRange');
+        wirePenSlider('magnetOffMin', 'magnetOffMin');
+        wirePenSlider('magnetOffRange', 'magnetOffRange');
+        wirePenSlider('searchRadiusOn', 'searchRadiusOn');
+        wirePenSlider('searchRadiusOff', 'searchRadiusOff');
+        wirePenSlider('searchStep', 'searchStep');
+        wirePenSlider('nearThreshold', 'nearThreshold');
+        wirePenSlider('nearRadius', 'nearRadius');
+        wirePenSlider('lineWidthOn', 'lineWidthOn');
+        wirePenSlider('lineWidthOff', 'lineWidthOff');
+        wirePenSlider('alphaOn', 'alphaOn');
+        wirePenSlider('alphaOff', 'alphaOff');
+        wirePenSlider('borderMargin', 'borderMargin');
+        wirePenSlider('borderPush', 'borderPush');
 
     </script>
 </body>
