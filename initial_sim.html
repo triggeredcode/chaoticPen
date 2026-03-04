@@ -557,12 +557,6 @@
                     max="0.05" step="0.001" value="0.008"><span class="dev-val" id="v-decayAmount">0.008</span><span
                     class="tip">?<span class="tiptext">How much error is reduced per stroke. Lower = pen revisits areas
                         more.</span></span></div>
-
-            <h3>⏱ Auto Draw</h3>
-            <div class="dev-row"><label>Duration (s)</label><input type="range" id="p-autoDuration" min="30" max="600"
-                    step="10" value="180"><span class="dev-val" id="v-autoDuration">180</span><span class="tip">?<span
-                        class="tiptext">Total time in seconds for Auto Draw to complete all 4 phases.</span></span>
-            </div>
         </div>
     </div>
 
@@ -587,9 +581,8 @@
         let faceWeight = null; // Float32Array: 0.0 (outside) to 1.0 (inside face) — soft feathered
         let isPaused = false;
         let simStartTime = 0;
-        let savedCanvasData = null; // For error map toggle restore
+        let savedCanvasData = null;
         let isAutoDrawing = false;
-        let autoDuration = 180; // seconds
 
         // === 3 PRE-COMPUTED MAPS ===
         let darknessMap = null;   // Float32Array: 0.0 (white) to 1.0 (black)
@@ -832,58 +825,20 @@
             errorMap = new Float32Array(n);
             for (let i = 0; i < n; i++) errorMap[i] = darknessMap[i];
 
-            // 4) BUILD GRID for dynamic region completion (8x8)
-            gridCols = 8; gridRows = 8;
-            gridCellW = Math.ceil(w / gridCols);
-            gridCellH = Math.ceil(h / gridRows);
-            gridError = new Float32Array(gridCols * gridRows);
-            updateGridError();
-
             // Also store edge data for display
             const ed = editCtx.getImageData(0, 0, w, h).data;
             edgeDataArray = new Uint8Array(n);
             for (let i = 0; i < ed.length; i += 4) edgeDataArray[i / 4] = ed[i] > 60 ? 1 : 0;
 
-            console.log(`Maps built: ${w}x${h}, ${n} pixels, grid ${gridCols}x${gridRows}`);
-        }
-
-        // === GRID-BASED DYNAMIC COMPLETION ===
-        let gridCols = 8, gridRows = 8, gridCellW, gridCellH;
-        let gridError = null;
-        let targetGridCell = -1; // index of cell with highest error
-
-        function updateGridError() {
-            if (!errorMap || !gridError) return;
-            gridError.fill(0);
-            const cellCounts = new Float32Array(gridCols * gridRows);
-            for (let y = 0; y < h; y++) {
-                const gy = Math.min(Math.floor(y / gridCellH), gridRows - 1);
-                for (let x = 0; x < w; x++) {
-                    const gx = Math.min(Math.floor(x / gridCellW), gridCols - 1);
-                    const gi = gy * gridCols + gx;
-                    gridError[gi] += errorMap[y * w + x];
-                    cellCounts[gi]++;
-                }
-            }
-            // Normalize to average error per cell
-            for (let i = 0; i < gridError.length; i++) {
-                if (cellCounts[i] > 0) gridError[i] /= cellCounts[i];
-            }
-            // Find highest error cell
-            let maxErr = 0; targetGridCell = 0;
-            for (let i = 0; i < gridError.length; i++) {
-                if (gridError[i] > maxErr) { maxErr = gridError[i]; targetGridCell = i; }
-            }
+            console.log(`Maps built: ${w}x${h}, ${n} pixels`);
         }
 
         // ============================================
-        //  THE CHAOTIC PEN
+        //  LAYER 1: THE CHAOTIC PEN (with command execution)
         // ============================================
         class ChaoticPen {
             constructor() {
-                // Start at center of face (or canvas center)
                 this.x = w / 2; this.y = h / 2;
-                // Find the darkest area to start near
                 let bestIdx = 0, bestVal = 0;
                 for (let i = 0; i < darknessMap.length; i += 50) {
                     if (darknessMap[i] > bestVal) { bestVal = darknessMap[i]; bestIdx = i; }
@@ -894,9 +849,17 @@
                 this.lx = this.x; this.ly = this.y;
                 this.wanderAngle = Math.random() * Math.PI * 2;
                 this.totalSteps = 0;
-                this.smoothDarkness = 0; // EMA-smoothed darkness for gradual line width
+                this.smoothDarkness = 0;
+
+                // Command state
+                this.command = null;       // Current command object
+                this.cmdStep = 0;          // Steps into current command
+                this.scribbleAngle = 0;    // For SCRIBBLE
+                this.cmdLineWidth = 0.4;
+                this.cmdAlpha = 0.1;
             }
 
+            // === MANUAL MODE: original force-based update ===
             update() {
                 this.totalSteps++;
                 let steerX = 0, steerY = 0;
@@ -904,15 +867,11 @@
                 const pixIdx = iy * w + ix;
                 const localDarkness = (ix >= 0 && ix < w && iy >= 0 && iy < h) ? darknessMap[pixIdx] : 0;
                 const localError = (ix >= 0 && ix < w && iy >= 0 && iy < h) ? errorMap[pixIdx] : 0;
-
-                // === EMA smooth darkness for line width transitions ===
                 this.smoothDarkness = this.smoothDarkness * 0.92 + localDarkness * 0.08;
 
-                // === FORCE 1: ERROR ATTRACTION ===
-                // Sample nearby pixels, find direction of highest cumulative error
+                // Force 1: Error Attraction
                 let errDx = 0, errDy = 0, errTotal = 0;
-                const sr = pen.searchRadius;
-                const ss = pen.searchStep;
+                const sr = pen.searchRadius, ss = pen.searchStep;
                 for (let ox = -sr; ox <= sr; ox += ss) {
                     for (let oy = -sr; oy <= sr; oy += ss) {
                         const cx = ix + ox, cy = iy + oy;
@@ -920,87 +879,188 @@
                             const e = errorMap[cy * w + cx];
                             if (e > 0.05) {
                                 const dist = Math.sqrt(ox * ox + oy * oy) || 1;
-                                // Weight by error and inverse distance
                                 const weight = e / dist;
-                                errDx += (ox / dist) * weight;
-                                errDy += (oy / dist) * weight;
-                                errTotal += weight;
+                                errDx += (ox / dist) * weight; errDy += (oy / dist) * weight; errTotal += weight;
                             }
                         }
                     }
                 }
                 if (errTotal > 0) {
                     const em = Math.sqrt(errDx * errDx + errDy * errDy) || 1;
-                    steerX += (errDx / em) * pen.errorPull;
-                    steerY += (errDy / em) * pen.errorPull;
+                    steerX += (errDx / em) * pen.errorPull; steerY += (errDy / em) * pen.errorPull;
                 }
 
-                // === FORCE 2: FLOW ALIGNMENT ===
+                // Force 2: Flow Alignment
                 if (ix >= 0 && ix < w && iy >= 0 && iy < h && pen.flowStrength > 0) {
-                    const fx = flowFieldX[pixIdx];
-                    const fy = flowFieldY[pixIdx];
-                    // Align velocity with flow direction
-                    steerX += fx * pen.flowStrength * localDarkness;
-                    steerY += fy * pen.flowStrength * localDarkness;
+                    steerX += flowFieldX[pixIdx] * pen.flowStrength * localDarkness;
+                    steerY += flowFieldY[pixIdx] * pen.flowStrength * localDarkness;
                 }
 
-                // === FORCE 3: DWELL LOOPING ===
-                // In dark areas, tighten the wander circle
-                // Higher darkness = more angular change per step = tighter loops
+                // Force 3: Dwell Looping
                 const dwellMod = 1.0 + localDarkness * pen.dwellFactor;
 
-                // === FORCE 4: REPULSION from saturated areas ===
+                // Force 4: Repulsion
                 if (localError < 0.02 && pen.repulsion > 0) {
-                    // Already drawn enough here — push away
                     steerX += (Math.random() - 0.5) * pen.repulsion * 3;
                     steerY += (Math.random() - 0.5) * pen.repulsion * 3;
                 }
 
-                // === FORCE 5: WANDER ===
+                // Force 5: Wander
                 this.wanderAngle += (Math.random() - 0.5) * pen.wanderRate * dwellMod;
                 steerX += Math.cos(this.wanderAngle) * pen.wanderForce;
                 steerY += Math.sin(this.wanderAngle) * pen.wanderForce;
 
-                // === FORCE 6: BORDER AVOIDANCE ===
-                const m = pen.borderMargin; const bp = pen.borderPush;
+                // Force 6: Border Avoidance
+                const m = pen.borderMargin, bp = pen.borderPush;
                 if (this.x < m) steerX += bp * (1 - this.x / m);
                 if (this.x > w - m) steerX -= bp * (1 - (w - this.x) / m);
                 if (this.y < m) steerY += bp * (1 - this.y / m);
                 if (this.y > h - m) steerY -= bp * (1 - (h - this.y) / m);
 
-                // === FORCE 7: GRID COMPLETION BIAS ===
-                // Every 400 steps, recalculate which grid cell needs the most work
-                if (this.totalSteps % 400 === 0) updateGridError();
-                if (targetGridCell >= 0 && gridError && gridError[targetGridCell] > 0.03) {
-                    const tgx = (targetGridCell % gridCols) * gridCellW + gridCellW / 2;
-                    const tgy = Math.floor(targetGridCell / gridCols) * gridCellH + gridCellH / 2;
-                    const dx = tgx - this.x, dy = tgy - this.y;
-                    const dm = Math.sqrt(dx * dx + dy * dy) || 1;
-                    // Gentle bias — don't override other forces, just nudge
-                    steerX += (dx / dm) * 0.008;
-                    steerY += (dy / dm) * 0.008;
-                }
-
-                // Apply forces
                 this.vx += steerX; this.vy += steerY;
-
-                // Speed limit (modulated by local darkness — slower in dark areas for tighter detail)
-                const speedMod = 1.0 - localDarkness * 0.4; // dark = 60% speed
+                const speedMod = 1.0 - localDarkness * 0.4;
                 const maxSpd = pen.maxSpeed * Math.max(0.3, speedMod);
                 const spd = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-                if (spd > maxSpd) {
-                    this.vx = (this.vx / spd) * maxSpd;
-                    this.vy = (this.vy / spd) * maxSpd;
-                }
+                if (spd > maxSpd) { this.vx = (this.vx / spd) * maxSpd; this.vy = (this.vy / spd) * maxSpd; }
 
                 this.lx = this.x; this.ly = this.y;
                 this.x += this.vx; this.y += this.vy;
                 this.x = Math.max(1, Math.min(w - 1, this.x));
                 this.y = Math.max(1, Math.min(h - 1, this.y));
+                this.decayError();
+            }
 
-                // === DECAY ERROR MAP around where we drew ===
-                const dr = pen.decayRadius;
-                const da = pen.decayAmount;
+            // === AUTO MODE: execute pen commands from Director ===
+            executeCommand() {
+                this.totalSteps++;
+                if (!this.command) return;
+                const cmd = this.command;
+                this.cmdStep++;
+
+                switch (cmd.type) {
+                    case 'GOTO': {
+                        const dx = cmd.tx - this.x, dy = cmd.ty - this.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist < 5) { this.command = null; break; }
+                        // Curved transit: steer toward target + gentle perpendicular drift
+                        const speed = cmd.speed || 6;
+                        const drift = Math.sin(this.cmdStep * 0.15) * 0.4;
+                        const nx = dx / dist, ny = dy / dist;
+                        this.vx = nx * speed + (-ny) * drift;
+                        this.vy = ny * speed + nx * drift;
+                        this.lx = this.x; this.ly = this.y;
+                        this.x += this.vx; this.y += this.vy;
+                        this.x = Math.max(1, Math.min(w - 1, this.x));
+                        this.y = Math.max(1, Math.min(h - 1, this.y));
+                        this.cmdLineWidth = cmd.lineWidth || 0.2;
+                        this.cmdAlpha = cmd.alpha || 0.04;
+                        this.decayError();
+                        break;
+                    }
+                    case 'SCRIBBLE': {
+                        if (this.cmdStep >= cmd.steps) { this.command = null; break; }
+                        // Orbiting scribble around center with variable radius
+                        this.scribbleAngle += cmd.tightness * (0.3 + Math.random() * 0.4);
+                        const r = cmd.radius * (0.4 + Math.random() * 0.6);
+                        const targetX = cmd.cx + Math.cos(this.scribbleAngle) * r;
+                        const targetY = cmd.cy + Math.sin(this.scribbleAngle) * r;
+                        // Smoothly move toward orbit point
+                        this.lx = this.x; this.ly = this.y;
+                        this.x += (targetX - this.x) * 0.3;
+                        this.y += (targetY - this.y) * 0.3;
+                        this.x = Math.max(1, Math.min(w - 1, this.x));
+                        this.y = Math.max(1, Math.min(h - 1, this.y));
+                        this.vx = this.x - this.lx; this.vy = this.y - this.ly;
+                        this.cmdLineWidth = cmd.lineWidth || 0.5;
+                        this.cmdAlpha = cmd.alpha || 0.15;
+                        this.decayError();
+                        break;
+                    }
+                    case 'CONTOUR': {
+                        if (this.cmdStep >= cmd.steps) { this.command = null; break; }
+                        const ix = Math.floor(this.x), iy = Math.floor(this.y);
+                        if (ix >= 1 && ix < w - 1 && iy >= 1 && iy < h - 1) {
+                            const pidx = iy * w + ix;
+                            const fs = cmd.flowStrength || 0.4;
+                            this.vx = this.vx * 0.7 + flowFieldX[pidx] * fs * 3;
+                            this.vy = this.vy * 0.7 + flowFieldY[pidx] * fs * 3;
+                            // Add gentle wander for organic feel
+                            this.wanderAngle += (Math.random() - 0.5) * 0.3;
+                            this.vx += Math.cos(this.wanderAngle) * 0.3;
+                            this.vy += Math.sin(this.wanderAngle) * 0.3;
+                        }
+                        const cSpd = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                        const cMax = cmd.speed || 3;
+                        if (cSpd > cMax) { this.vx = (this.vx / cSpd) * cMax; this.vy = (this.vy / cSpd) * cMax; }
+                        this.lx = this.x; this.ly = this.y;
+                        this.x += this.vx; this.y += this.vy;
+                        this.x = Math.max(1, Math.min(w - 1, this.x));
+                        this.y = Math.max(1, Math.min(h - 1, this.y));
+                        this.cmdLineWidth = cmd.lineWidth || 0.4;
+                        this.cmdAlpha = cmd.alpha || 0.12;
+                        this.decayError();
+                        break;
+                    }
+                    case 'WANDER': {
+                        if (this.cmdStep >= cmd.steps) { this.command = null; break; }
+                        // Bounded force-based wander within a region
+                        const ix = Math.floor(this.x), iy = Math.floor(this.y);
+                        const pidx = iy * w + ix;
+                        const ld = (ix >= 0 && ix < w && iy >= 0 && iy < h) ? darknessMap[pidx] : 0;
+                        const le = (ix >= 0 && ix < w && iy >= 0 && iy < h) ? errorMap[pidx] : 0;
+                        this.smoothDarkness = this.smoothDarkness * 0.9 + ld * 0.1;
+
+                        let sx = 0, sy = 0;
+                        // Local error attraction
+                        const lsr = 25;
+                        for (let ox = -lsr; ox <= lsr; ox += 4) {
+                            for (let oy = -lsr; oy <= lsr; oy += 4) {
+                                const cx = ix + ox, cy = iy + oy;
+                                if (cx >= 0 && cx < w && cy >= 0 && cy < h) {
+                                    const e = errorMap[cy * w + cx];
+                                    if (e > 0.04) {
+                                        const d2 = Math.sqrt(ox * ox + oy * oy) || 1;
+                                        sx += (ox / d2) * e / d2 * 0.1;
+                                        sy += (oy / d2) * e / d2 * 0.1;
+                                    }
+                                }
+                            }
+                        }
+                        // Wander
+                        this.wanderAngle += (Math.random() - 0.5) * (0.4 + ld * 1.5);
+                        sx += Math.cos(this.wanderAngle) * 0.03;
+                        sy += Math.sin(this.wanderAngle) * 0.03;
+                        // Soft containment: pull back to region center
+                        if (cmd.cx !== undefined) {
+                            const dx = cmd.cx - this.x, dy = cmd.cy - this.y;
+                            const dd = Math.sqrt(dx * dx + dy * dy);
+                            if (dd > cmd.radius * 1.5) {
+                                sx += (dx / dd) * 0.06; sy += (dy / dd) * 0.06;
+                            }
+                        }
+                        // Border
+                        if (this.x < 15) sx += 0.05; if (this.x > w - 15) sx -= 0.05;
+                        if (this.y < 15) sy += 0.05; if (this.y > h - 15) sy -= 0.05;
+
+                        this.vx += sx; this.vy += sy;
+                        const ws = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                        const wMax = cmd.speed || 4;
+                        if (ws > wMax) { this.vx = (this.vx / ws) * wMax; this.vy = (this.vy / ws) * wMax; }
+
+                        this.lx = this.x; this.ly = this.y;
+                        this.x += this.vx; this.y += this.vy;
+                        this.x = Math.max(1, Math.min(w - 1, this.x));
+                        this.y = Math.max(1, Math.min(h - 1, this.y));
+                        this.cmdLineWidth = cmd.lineWidth || 0.4;
+                        this.cmdAlpha = cmd.alpha || 0.1;
+                        this.decayError();
+                        break;
+                    }
+                }
+            }
+
+            decayError() {
+                const dr = 5, da = 0.008;
                 const cx2 = Math.floor(this.x), cy2 = Math.floor(this.y);
                 for (let ox = -dr; ox <= dr; ox++) {
                     for (let oy = -dr; oy <= dr; oy++) {
@@ -1009,30 +1069,343 @@
                             const dist = Math.sqrt(ox * ox + oy * oy);
                             if (dist <= dr) {
                                 const falloff = 1.0 - (dist / dr);
-                                const ei = py * w + px;
-                                errorMap[ei] = Math.max(0, errorMap[ei] - da * falloff);
+                                errorMap[py * w + px] = Math.max(0, errorMap[py * w + px] - da * falloff);
                             }
                         }
                     }
                 }
             }
 
-            draw() {
-                // Use EMA-smoothed darkness for gradual line width transitions
+            drawManual() {
                 const d = this.smoothDarkness;
-
-                // Continuous line width and alpha based on smoothed darkness
                 const lw = pen.lineWidthMin + d * (pen.lineWidthMax - pen.lineWidthMin);
                 const alpha = pen.alphaMin + d * (pen.alphaMax - pen.alphaMin);
+                simCtx.strokeStyle = `rgba(20, 15, 10, ${alpha})`;
+                simCtx.lineWidth = lw;
+                simCtx.lineCap = 'round'; simCtx.lineJoin = 'round';
+                simCtx.beginPath(); simCtx.moveTo(this.lx, this.ly); simCtx.lineTo(this.x, this.y); simCtx.stroke();
+            }
+
+            drawAuto() {
+                // Smooth transitions for auto mode too
+                const ix = Math.floor(this.x), iy = Math.floor(this.y);
+                const ld = (ix >= 0 && ix < w && iy >= 0 && iy < h) ? darknessMap[iy * w + ix] : 0;
+                this.smoothDarkness = this.smoothDarkness * 0.92 + ld * 0.08;
+
+                // Modulate by local darkness: on-edge strokes slightly thicker/darker
+                const darkMod = 0.7 + this.smoothDarkness * 0.6; // 0.7 to 1.3
+                const lw = this.cmdLineWidth * darkMod;
+                const alpha = Math.min(0.85, this.cmdAlpha * darkMod);
 
                 simCtx.strokeStyle = `rgba(20, 15, 10, ${alpha})`;
                 simCtx.lineWidth = lw;
-                simCtx.lineCap = 'round';
-                simCtx.lineJoin = 'round';
-                simCtx.beginPath();
-                simCtx.moveTo(this.lx, this.ly);
-                simCtx.lineTo(this.x, this.y);
-                simCtx.stroke();
+                simCtx.lineCap = 'round'; simCtx.lineJoin = 'round';
+                simCtx.beginPath(); simCtx.moveTo(this.lx, this.ly); simCtx.lineTo(this.x, this.y); simCtx.stroke();
+            }
+        }
+
+        // ============================================
+        //  LAYER 2: REGION ANALYSIS
+        // ============================================
+        function findUnfinishedRegions() {
+            // Downsample to 1/4 for speed
+            const scale = 4;
+            const sw = Math.floor(w / scale), sh = Math.floor(h / scale);
+            const small = new Float32Array(sw * sh);
+            const smallDark = new Float32Array(sw * sh);
+            for (let sy = 0; sy < sh; sy++) {
+                for (let sx = 0; sx < sw; sx++) {
+                    const ox = sx * scale, oy = sy * scale;
+                    let sum = 0, dsum = 0, cnt = 0;
+                    for (let dy = 0; dy < scale && oy + dy < h; dy++) {
+                        for (let dx = 0; dx < scale && ox + dx < w; dx++) {
+                            sum += errorMap[(oy + dy) * w + (ox + dx)];
+                            dsum += darknessMap[(oy + dy) * w + (ox + dx)];
+                            cnt++;
+                        }
+                    }
+                    small[sy * sw + sx] = sum / cnt;
+                    smallDark[sy * sw + sx] = dsum / cnt;
+                }
+            }
+
+            // Connected-component labeling via flood fill
+            const labels = new Int32Array(sw * sh).fill(-1);
+            const threshold = 0.06;
+            let nextLabel = 0;
+            const regions = [];
+
+            function floodFill(startX, startY, label) {
+                const stack = [[startX, startY]];
+                let sumX = 0, sumY = 0, sumErr = 0, sumDark = 0, count = 0;
+                let minX = sw, minY = sh, maxX = 0, maxY = 0;
+                while (stack.length > 0) {
+                    const [cx, cy] = stack.pop();
+                    const ci = cy * sw + cx;
+                    if (cx < 0 || cx >= sw || cy < 0 || cy >= sh) continue;
+                    if (labels[ci] >= 0 || small[ci] < threshold) continue;
+                    labels[ci] = label;
+                    const err = small[ci];
+                    sumX += cx * err; sumY += cy * err; // error-weighted centroid
+                    sumErr += err; sumDark += smallDark[ci]; count++;
+                    minX = Math.min(minX, cx); maxX = Math.max(maxX, cx);
+                    minY = Math.min(minY, cy); maxY = Math.max(maxY, cy);
+                    stack.push([cx - 1, cy], [cx + 1, cy], [cx, cy - 1], [cx, cy + 1]);
+                }
+                if (count > 2) { // Ignore tiny noise regions
+                    regions.push({
+                        cx: (sumX / sumErr) * scale,
+                        cy: (sumY / sumErr) * scale,
+                        avgError: sumErr / count,
+                        avgDarkness: sumDark / count,
+                        pixelCount: count * scale * scale,
+                        bbox: { x: minX * scale, y: minY * scale, w: (maxX - minX + 1) * scale, h: (maxY - minY + 1) * scale },
+                        radius: Math.sqrt(count * scale * scale / Math.PI),
+                        priority: (sumErr / count) * Math.sqrt(count) * (1 + sumDark / count)
+                    });
+                }
+            }
+
+            for (let sy = 0; sy < sh; sy++) {
+                for (let sx = 0; sx < sw; sx++) {
+                    if (labels[sy * sw + sx] < 0 && small[sy * sw + sx] >= threshold) {
+                        floodFill(sx, sy, nextLabel++);
+                    }
+                }
+            }
+
+            // Sort by priority descending
+            regions.sort((a, b) => b.priority - a.priority);
+            return regions.slice(0, 20);
+        }
+
+        // Pick a high-error point within a region
+        function pickHighErrorPoint(region) {
+            const bx = region.bbox.x, by = region.bbox.y;
+            const bw = region.bbox.w, bh = region.bbox.h;
+            let bestX = region.cx, bestY = region.cy, bestErr = 0;
+            // Sample 30 random points, pick the one with highest error
+            for (let i = 0; i < 30; i++) {
+                const rx = bx + Math.random() * bw;
+                const ry = by + Math.random() * bh;
+                const ix = Math.floor(rx), iy = Math.floor(ry);
+                if (ix >= 0 && ix < w && iy >= 0 && iy < h) {
+                    const e = errorMap[iy * w + ix];
+                    if (e > bestErr) { bestErr = e; bestX = rx; bestY = ry; }
+                }
+            }
+            return { x: bestX, y: bestY, error: bestErr };
+        }
+
+        // ============================================
+        //  LAYER 2: THE DIRECTOR (state machine)
+        // ============================================
+        class Director {
+            constructor() {
+                this.state = 'TRANSIT';  // TRANSIT, WORKING
+                this.regions = [];
+                this.targetRegion = null;
+                this.commandQueue = [];
+                this.workingSteps = 0;
+                this.regionsDone = new Set(); // track visited region indices
+                this.analysisCounter = 0;
+                this.globalCoverage = 0;
+            }
+
+            tick(penObj) {
+                this.analysisCounter++;
+
+                // Re-analyze regions periodically
+                if (this.analysisCounter % 3 === 0 || this.regions.length === 0) {
+                    this.regions = findUnfinishedRegions();
+                    this.computeCoverage();
+                }
+
+                switch (this.state) {
+                    case 'TRANSIT':
+                        if (!this.targetRegion || this.regions.length === 0) {
+                            // Pick best region
+                            this.targetRegion = this.pickBestRegion(penObj);
+                            if (!this.targetRegion) {
+                                // All done!
+                                document.getElementById('phaseDisplay').innerText = 'Complete';
+                                return;
+                            }
+                            // Issue GOTO command
+                            penObj.command = {
+                                type: 'GOTO',
+                                tx: this.targetRegion.cx,
+                                ty: this.targetRegion.cy,
+                                speed: 8,
+                                lineWidth: 0.2,
+                                alpha: 0.04
+                            };
+                            penObj.cmdStep = 0;
+                        }
+                        // Check if arrived (GOTO finished)
+                        if (!penObj.command || penObj.command.type !== 'GOTO') {
+                            this.state = 'WORKING';
+                            this.workingSteps = 0;
+                            this.commandQueue = this.planRegionWork(this.targetRegion);
+                            this.issueNextCommand(penObj);
+                        }
+                        break;
+
+                    case 'WORKING':
+                        this.workingSteps++;
+                        // If current command finished, issue next
+                        if (!penObj.command) {
+                            if (this.commandQueue.length > 0) {
+                                this.issueNextCommand(penObj);
+                            } else {
+                                // Region work done — transit to next
+                                this.state = 'TRANSIT';
+                                this.targetRegion = null;
+                            }
+                        }
+                        // Safety: don't spend too long in one region
+                        if (this.workingSteps > 25) {
+                            this.state = 'TRANSIT';
+                            this.targetRegion = null;
+                            this.commandQueue = [];
+                            penObj.command = null;
+                        }
+                        break;
+                }
+
+                // Update phase display
+                const phaseEl = document.getElementById('phaseDisplay');
+                if (this.globalCoverage < 20) phaseEl.innerText = `Mapping ${Math.round(this.globalCoverage)}%`;
+                else if (this.globalCoverage < 55) phaseEl.innerText = `Building ${Math.round(this.globalCoverage)}%`;
+                else if (this.globalCoverage < 80) phaseEl.innerText = `Detailing ${Math.round(this.globalCoverage)}%`;
+                else phaseEl.innerText = `Refining ${Math.round(this.globalCoverage)}%`;
+            }
+
+            pickBestRegion(penObj) {
+                for (const r of this.regions) {
+                    if (r.avgError > 0.04 && r.pixelCount > 30) return r;
+                }
+                return null;
+            }
+
+            planRegionWork(region) {
+                const cmds = [];
+                const d = region.avgDarkness;
+                const e = region.avgError;
+                const cov = this.globalCoverage / 100;
+
+                // Compute local settings from region properties + global progress
+                const intensity = lerp(0.08, 0.6, d) * lerp(0.7, 1.3, cov);
+                const lineW = lerp(0.3, 1.5, d) * lerp(0.6, 1.2, cov);
+                const scribbleRadius = lerp(35, 8, d) * lerp(1.2, 0.7, cov);
+                const tightness = lerp(0.3, 0.9, d);
+                const speed = lerp(5, 1.5, d);
+                const scribbleCount = Math.floor(lerp(2, 7, d * e));
+                const stepsPerScribble = Math.floor(lerp(80, 250, d));
+
+                for (let i = 0; i < scribbleCount; i++) {
+                    const pt = pickHighErrorPoint(region);
+
+                    // SCRIBBLE at high-error sub-point
+                    cmds.push({
+                        type: 'SCRIBBLE',
+                        cx: pt.x, cy: pt.y,
+                        radius: scribbleRadius * (0.7 + Math.random() * 0.6),
+                        tightness: tightness,
+                        steps: stepsPerScribble,
+                        lineWidth: lineW,
+                        alpha: intensity,
+                        speed: speed
+                    });
+
+                    // Occasional contour follow (30% chance)
+                    if (Math.random() < 0.3) {
+                        cmds.push({
+                            type: 'CONTOUR',
+                            steps: Math.floor(lerp(40, 120, 1 - d)),
+                            flowStrength: lerp(0.2, 0.5, d),
+                            lineWidth: lineW * 0.8,
+                            alpha: intensity * 0.7,
+                            speed: speed * 1.2
+                        });
+                    }
+
+                    // Occasional wander for organic feel (20% chance)
+                    if (Math.random() < 0.2) {
+                        cmds.push({
+                            type: 'WANDER',
+                            cx: region.cx, cy: region.cy,
+                            radius: region.radius,
+                            steps: Math.floor(lerp(60, 150, e)),
+                            lineWidth: lineW * 0.7,
+                            alpha: intensity * 0.6,
+                            speed: speed
+                        });
+                    }
+                }
+                return cmds;
+            }
+
+            issueNextCommand(penObj) {
+                if (this.commandQueue.length === 0) return;
+                penObj.command = this.commandQueue.shift();
+                penObj.cmdStep = 0;
+                penObj.scribbleAngle = Math.random() * Math.PI * 2;
+            }
+
+            computeCoverage() {
+                let totalErr = 0, totalDark = 0;
+                for (let i = 0; i < errorMap.length; i += 10) {
+                    totalErr += errorMap[i]; totalDark += darknessMap[i];
+                }
+                this.globalCoverage = totalDark > 0 ? (1 - totalErr / totalDark) * 100 : 0;
+            }
+        }
+
+        function lerp(a, b, t) { return a + (b - a) * Math.max(0, Math.min(1, t)); }
+
+        // ============================================
+        //  LAYER 3: THE MONITOR (canvas evaluation)
+        // ============================================
+        class Monitor {
+            constructor() {
+                this.lastEval = 0;
+            }
+
+            evaluate(penObj, director) {
+                // Read canvas pixels and compare to target
+                const canvasData = simCtx.getImageData(0, 0, w, h).data;
+
+                // Check each region the Director knows about
+                for (const region of director.regions) {
+                    const bx = Math.floor(region.bbox.x), by = Math.floor(region.bbox.y);
+                    const bw = Math.floor(region.bbox.w), bh = Math.floor(region.bbox.h);
+                    let mse = 0, cnt = 0;
+
+                    // Sample pixels in region bbox
+                    for (let sy = by; sy < by + bh && sy < h; sy += 3) {
+                        for (let sx = bx; sx < bx + bw && sx < w; sx += 3) {
+                            const pi = (sy * w + sx) * 4;
+                            // Canvas grayscale (inverted: white=0, black=1)
+                            const canvasLum = (canvasData[pi] * 0.21 + canvasData[pi + 1] * 0.72 + canvasData[pi + 2] * 0.07) / 255;
+                            const canvasDark = 1.0 - canvasLum;
+                            const targetDark = darknessMap[sy * w + sx];
+                            const diff = targetDark - canvasDark;
+                            if (diff > 0) mse += diff * diff; // Only count under-drawn
+                            cnt++;
+                        }
+                    }
+                    if (cnt > 0) {
+                        const regionMSE = mse / cnt;
+                        // Boost priority of under-drawn regions
+                        if (regionMSE > 0.02) {
+                            region.priority *= (1 + regionMSE * 5);
+                        }
+                    }
+                }
+
+                // Re-sort regions by boosted priority
+                director.regions.sort((a, b) => b.priority - a.priority);
             }
         }
 
@@ -1041,81 +1414,47 @@
         // ============================================
         let activePen = null;
         let showErrorOverlay = false;
+        let director = null;
+        let monitor = null;
+        const AUTO_STEPS = 60; // Always 60 steps per frame in auto mode
 
         function startPen() {
-            simCtx.fillStyle = '#f5f0eb'; // Warm paper
+            simCtx.fillStyle = '#f5f0eb';
             simCtx.fillRect(0, 0, w, h);
             activePen = new ChaoticPen();
+            director = new Director();
+            monitor = new Monitor();
             isPaused = false;
             simStartTime = performance.now();
             cancelAnimationFrame(simulationRaf);
             animatePen();
         }
 
-        // ============================================
-        //  AUTOMATION TIMELINE (keyframe interpolation)
-        // ============================================
-        const autoKeyframes = [
-            { t: 0.00, label: 'Ghost', maxSpeed: 7, stepsPerFrame: 25, wanderRate: 0.3, wanderForce: 0.02, errorPull: 0.05, searchRadius: 60, searchStep: 5, flowStrength: 0.03, dwellFactor: 0.3, repulsion: 0.01, lineWidthMin: 0.3, lineWidthMax: 0.8, alphaMin: 0.05, alphaMax: 0.2, borderMargin: 25, borderPush: 0.04, decayRadius: 6, decayAmount: 0.012 },
-            { t: 0.15, label: 'Structure', maxSpeed: 5, stepsPerFrame: 25, wanderRate: 0.35, wanderForce: 0.02, errorPull: 0.07, searchRadius: 50, searchStep: 4, flowStrength: 0.04, dwellFactor: 0.6, repulsion: 0.015, lineWidthMin: 0.25, lineWidthMax: 0.9, alphaMin: 0.04, alphaMax: 0.3, borderMargin: 25, borderPush: 0.04, decayRadius: 5, decayAmount: 0.010 },
-            { t: 0.45, label: 'Detail', maxSpeed: 3, stepsPerFrame: 20, wanderRate: 0.4, wanderForce: 0.022, errorPull: 0.10, searchRadius: 35, searchStep: 4, flowStrength: 0.05, dwellFactor: 1.2, repulsion: 0.02, lineWidthMin: 0.2, lineWidthMax: 1.3, alphaMin: 0.04, alphaMax: 0.5, borderMargin: 25, borderPush: 0.04, decayRadius: 5, decayAmount: 0.007 },
-            { t: 0.80, label: 'Refine', maxSpeed: 2, stepsPerFrame: 15, wanderRate: 0.5, wanderForce: 0.025, errorPull: 0.12, searchRadius: 20, searchStep: 3, flowStrength: 0.05, dwellFactor: 2.0, repulsion: 0.025, lineWidthMin: 0.2, lineWidthMax: 1.8, alphaMin: 0.04, alphaMax: 0.7, borderMargin: 25, borderPush: 0.04, decayRadius: 4, decayAmount: 0.004 },
-            { t: 1.00, label: 'Complete', maxSpeed: 2, stepsPerFrame: 15, wanderRate: 0.5, wanderForce: 0.025, errorPull: 0.12, searchRadius: 20, searchStep: 3, flowStrength: 0.05, dwellFactor: 2.0, repulsion: 0.025, lineWidthMin: 0.2, lineWidthMax: 1.8, alphaMin: 0.04, alphaMax: 0.7, borderMargin: 25, borderPush: 0.04, decayRadius: 4, decayAmount: 0.004 }
-        ];
-
-        function lerpKeys(a, b, t) {
-            const result = {};
-            for (const key in a) {
-                if (key === 't' || key === 'label') continue;
-                result[key] = a[key] + (b[key] - a[key]) * t;
-            }
-            return result;
-        }
-
-        function applyAutoTimeline(elapsed) {
-            const progress = Math.min(elapsed / autoDuration, 1.0);
-            // Find keyframe pair
-            let a = autoKeyframes[0], b = autoKeyframes[1];
-            for (let i = 0; i < autoKeyframes.length - 1; i++) {
-                if (progress >= autoKeyframes[i].t && progress <= autoKeyframes[i + 1].t) {
-                    a = autoKeyframes[i]; b = autoKeyframes[i + 1]; break;
-                }
-            }
-            const segT = (b.t - a.t) > 0 ? (progress - a.t) / (b.t - a.t) : 0;
-            const vals = lerpKeys(a, b, segT);
-
-            // Apply to pen config
-            for (const key in vals) { pen[key] = vals[key]; }
-
-            // Update slider displays
-            for (const key in vals) {
-                const el = document.getElementById('p-' + key);
-                const vEl = document.getElementById('v-' + key);
-                if (el) el.value = vals[key];
-                if (vEl) vEl.innerText = vals[key] % 1 === 0 ? vals[key] : vals[key].toFixed(3);
-            }
-
-            // Phase label
-            const phaseEl = document.getElementById('phaseDisplay');
-            phaseEl.innerText = a.label;
-
-            if (progress >= 1.0) {
-                isAutoDrawing = false;
-                phaseEl.innerText = 'Complete';
-                document.getElementById('autoDrawBtn').innerText = 'Auto Draw';
-            }
-        }
-
         function animatePen() {
             if (!isPaused && activePen) {
                 if (isAutoDrawing) {
-                    const elapsed = (performance.now() - simStartTime) / 1000;
-                    applyAutoTimeline(elapsed);
-                }
+                    // Director tick every ~600 pen steps (AUTO_STEPS * ~10 frames)
+                    if (activePen.totalSteps % 600 === 0) {
+                        director.tick(activePen);
+                    }
+                    // Monitor evaluation every ~3000 steps
+                    if (activePen.totalSteps % 3000 === 0 && activePen.totalSteps > 0) {
+                        monitor.evaluate(activePen, director);
+                    }
+                    // Issue command if needed
+                    if (!activePen.command) {
+                        director.tick(activePen);
+                    }
 
-                for (let i = 0; i < pen.stepsPerFrame; i++) {
-                    activePen.update();
-                    activePen.draw();
+                    for (let i = 0; i < AUTO_STEPS; i++) {
+                        activePen.executeCommand();
+                        activePen.drawAuto();
+                    }
+                } else {
+                    for (let i = 0; i < pen.stepsPerFrame; i++) {
+                        activePen.update();
+                        activePen.drawManual();
+                    }
                 }
                 updateStatus();
             }
@@ -1166,10 +1505,14 @@
             simCtx.fillRect(0, 0, w, h);
             if (darknessMap) { for (let i = 0; i < darknessMap.length; i++) errorMap[i] = darknessMap[i]; }
             activePen = new ChaoticPen();
+            director = new Director();
+            monitor = new Monitor();
             simStartTime = performance.now();
             showErrorOverlay = false;
             savedCanvasData = null;
+            isAutoDrawing = false;
             document.getElementById('toggleErrorBtn').innerText = 'Error Map';
+            document.getElementById('autoDrawBtn').innerText = 'Auto Draw';
         };
 
         document.getElementById('toggleErrorBtn').onclick = () => {
@@ -1235,9 +1578,6 @@
         wire('alphaMin', 'alphaMin'); wire('alphaMax', 'alphaMax');
         wire('borderMargin', 'borderMargin'); wire('borderPush', 'borderPush');
         wire('decayRadius', 'decayRadius'); wire('decayAmount', 'decayAmount');
-        // Duration slider
-        const durEl = document.getElementById('p-autoDuration');
-        if (durEl) durEl.oninput = (e) => { autoDuration = parseInt(e.target.value); document.getElementById('v-autoDuration').innerText = autoDuration; };
 
     </script>
 </body>
