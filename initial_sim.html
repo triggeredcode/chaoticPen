@@ -5,6 +5,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Zen Swarm Studio</title>
+    <!-- MediaPipe Face Mesh -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"
+        crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"
+        crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
     <style>
         :root {
             --bg: #050505;
@@ -33,7 +40,6 @@
             flex-direction: column;
         }
 
-        /* Views */
         .view {
             position: absolute;
             inset: 0;
@@ -53,7 +59,6 @@
             z-index: 20;
         }
 
-        /* Top Navigation / Status */
         .top-bar {
             position: absolute;
             top: 0;
@@ -65,7 +70,6 @@
             align-items: center;
             z-index: 100;
             pointer-events: none;
-            /* Let clicks pass through to canvas unless on a button */
         }
 
         .top-bar>* {
@@ -87,7 +91,6 @@
             color: var(--accent);
         }
 
-        /* Floating UI Panels */
         .floating-panel {
             position: absolute;
             bottom: 2rem;
@@ -134,7 +137,6 @@
             cursor: pointer;
         }
 
-        /* Buttons */
         .btn {
             background: transparent;
             border: 1px solid #444;
@@ -165,7 +167,12 @@
             transform: translateY(-1px);
         }
 
-        /* Canvas Containers */
+        .btn.active-toggle {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: rgba(255, 255, 255, 0.1);
+        }
+
         .canvas-wrapper {
             position: relative;
             display: flex;
@@ -183,7 +190,6 @@
             border-radius: 4px;
         }
 
-        /* Editor specific cursor */
         #editCanvas {
             cursor: crosshair;
         }
@@ -198,7 +204,6 @@
             display: none;
         }
 
-        /* Splash Screen */
         .splash-content {
             text-align: center;
             display: flex;
@@ -217,6 +222,37 @@
         .hidden-input {
             display: none;
         }
+
+        .sim-clock {
+            position: absolute;
+            top: 1.5rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 0.5rem 1.5rem;
+            border-radius: 30px;
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+            pointer-events: none;
+            z-index: 100;
+            font-size: 0.8rem;
+        }
+
+        .sim-clock .clock {
+            font-family: monospace;
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: var(--accent);
+        }
+
+        .sim-clock .phase {
+            color: var(--dim);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
     </style>
 </head>
 
@@ -233,8 +269,8 @@
         <div class="splash-content">
             <h1>Swarm Studio</h1>
             <p style="font-size: 0.8rem; color: var(--dim); letter-spacing: 0.1em; max-width: 400px; line-height: 1.5;">
-                A multi-phase generative art tool. Upload an image, isolate the exact edges you want the swarm to trace,
-                and deploy the flock.
+                Upload a facial portrait. The system will detect the face, generate weighted edges, and deploy an
+                evolving swarm to trace it.
             </p>
             <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Load Image</button>
         </div>
@@ -268,10 +304,15 @@
             <canvas id="simCanvas"></canvas>
         </div>
 
+        <div class="sim-clock" id="simClock">
+            <span class="clock" id="clockDisplay">00:00</span>
+            <span class="phase" id="phaseDisplay">Chaos</span>
+        </div>
+
         <div class="floating-panel">
             <div class="control-group">
                 <label>Swarm Density</label>
-                <input type="range" id="simAgents" min="100" max="1500" value="600">
+                <input type="range" id="simAgents" min="100" max="5500" value="600">
             </div>
             <div class="control-group">
                 <label>Flow Smoothness</label>
@@ -281,7 +322,12 @@
                 <label>Void Mode</label>
                 <input type="checkbox" id="simVoidToggle" checked style="accent-color: var(--accent);">
             </div>
+            <div class="control-group" style="flex-direction: row; align-items: center; gap: 10px;">
+                <label>Monochrome</label>
+                <input type="checkbox" id="monochromeToggle" style="accent-color: var(--accent);">
+            </div>
             <div style="width: 1px; height: 30px; background: #333; margin: 0 10px;"></div>
+            <button class="btn" id="evolveBtn">1-Min Evolve</button>
             <button class="btn" id="clearSimBtn">Wipe Canvas</button>
             <button class="btn btn-primary" id="exportBtn">Export Art</button>
         </div>
@@ -304,12 +350,18 @@
         const restartBtn = document.getElementById('restartBtn');
 
         // --- Global State ---
-        let sourceImgData = null; // Raw pixels from original image
+        let sourceImgData = null;
         let originalImg = null;
         let w, h;
         let boids = [];
+        let negativeBoids = [];
         let simulationRaf;
         let edgeDataArray = null;
+        let faceMask = null; // 1 = inside face, 0 = outside
+
+        // Evolution state
+        let isEvolving = false;
+        let evolveStart = 0;
 
         // --- Config ---
         const config = {
@@ -318,9 +370,81 @@
             agents: 600,
             maxSpeed: 2.5,
             maxForce: 0.1,
-            voidMode: true, // Only show lines on edges
-            smoothness: 0.8 // 0.1 to 1.0 (Mapped from 1-10 slider)
+            voidMode: true,
+            smoothness: 0.8,
+            monochrome: false,
+            negativeRatio: 0.08 // 8% of flock are negative (erasers)
         };
+
+        // --- MediaPipe Face Mesh Setup ---
+        const faceMeshInstance = new FaceMesh({
+            locateFile: (file) => {
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+            }
+        });
+        faceMeshInstance.setOptions({
+            maxNumFaces: 1,
+            refineLandmarks: true,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        let storedLandmarks = null;
+
+        faceMeshInstance.onResults((results) => {
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                storedLandmarks = results.multiFaceLandmarks[0];
+                buildFaceMask(storedLandmarks);
+                console.log("Face mesh detected. Rebuilding weighted edges...");
+            } else {
+                console.warn("No face detected. Using full image for edges.");
+                faceMask = new Uint8Array(w * h).fill(1);
+            }
+            // Regenerate edges with face weighting
+            generateEdges();
+            setView('edit');
+        });
+
+        function buildFaceMask(landmarks) {
+            faceMask = new Uint8Array(w * h);
+            const maskCanvas = document.createElement('canvas');
+            maskCanvas.width = w; maskCanvas.height = h;
+            const mCtx = maskCanvas.getContext('2d');
+
+            // Face Oval indices
+            let ovalIndices = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288,
+                397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132,
+                93, 234, 127, 162, 21, 54, 103, 67, 109];
+
+            if (window.FACEMESH_FACE_OVAL) {
+                const pairs = [...window.FACEMESH_FACE_OVAL];
+                ovalIndices = [pairs[0][0]];
+                for (let i = 0; i < pairs.length; i++) ovalIndices.push(pairs[i][1]);
+            }
+
+            // Center for padding
+            let cx = 0, cy = 0;
+            ovalIndices.forEach(idx => { cx += landmarks[idx].x * w; cy += landmarks[idx].y * h; });
+            cx /= ovalIndices.length; cy /= ovalIndices.length;
+
+            const padding = 1.15;
+            mCtx.fillStyle = '#fff';
+            mCtx.beginPath();
+            ovalIndices.forEach((idx, i) => {
+                let px = landmarks[idx].x * w;
+                let py = landmarks[idx].y * h;
+                px = cx + (px - cx) * padding;
+                py = cy + (py - cy) * padding;
+                if (i === 0) mCtx.moveTo(px, py); else mCtx.lineTo(px, py);
+            });
+            mCtx.closePath();
+            mCtx.fill();
+
+            const maskData = mCtx.getImageData(0, 0, w, h).data;
+            for (let i = 0; i < maskData.length; i += 4) {
+                faceMask[i / 4] = maskData[i] > 128 ? 1 : 0;
+            }
+        }
 
         // --- Navigation ---
         function setView(viewName) {
@@ -332,6 +456,7 @@
                 restartBtn.style.opacity = "0";
                 restartBtn.style.pointerEvents = "none";
                 cancelAnimationFrame(simulationRaf);
+                isEvolving = false;
             } else if (viewName === 'edit') {
                 phaseIndicator.innerText = "Phase 2 / Isolate Edges (Erase Unwanted Lines)";
                 restartBtn.style.opacity = "1";
@@ -358,7 +483,6 @@
 
         // --- Phase 2: Edge Editor ---
         function initEditor(img) {
-            // Calculate dimensions fitting the screen
             const maxW = window.innerWidth * 0.9;
             const maxH = window.innerHeight * 0.8;
             const scale = Math.min(maxW / img.width, maxH / img.height);
@@ -366,25 +490,37 @@
             w = editCanvas.width = simCanvas.width = Math.max(1, Math.floor(img.width * scale));
             h = editCanvas.height = simCanvas.height = Math.max(1, Math.floor(img.height * scale));
 
-            // Extract raw data once
             const tempCanvas = document.createElement('canvas');
             tempCanvas.width = w; tempCanvas.height = h;
             const tCtx = tempCanvas.getContext('2d');
             tCtx.drawImage(img, 0, 0, w, h);
             sourceImgData = tCtx.getImageData(0, 0, w, h).data;
 
-            generateEdges();
-            setView('edit');
+            // Send to MediaPipe for face detection
+            phaseIndicator.innerText = "Detecting face...";
+            faceMeshInstance.send({ image: tempCanvas });
         }
 
         function generateEdges() {
-            // Sobel Edge Detection mapped directly to the Edit Canvas
+            // Weighted Sobel: 80% weight inside face mask, 20% outside
             const data = sourceImgData;
+
+            // Blur first for cleaner edges
+            const blurCanvas = document.createElement('canvas');
+            blurCanvas.width = w; blurCanvas.height = h;
+            const bCtx = blurCanvas.getContext('2d');
+            bCtx.filter = 'blur(2px)';
+            const srcCanvas = document.createElement('canvas');
+            srcCanvas.width = w; srcCanvas.height = h;
+            srcCanvas.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(data), w, h), 0, 0);
+            bCtx.drawImage(srcCanvas, 0, 0);
+            const blurData = bCtx.getImageData(0, 0, w, h).data;
+
             const edges = new Uint8ClampedArray(w * h * 4);
             const luma = new Uint8Array(w * h);
 
-            for (let i = 0; i < data.length; i += 4) {
-                luma[i / 4] = data[i] * 0.21 + data[i + 1] * 0.72 + data[i + 2] * 0.07;
+            for (let i = 0; i < blurData.length; i += 4) {
+                luma[i / 4] = blurData[i] * 0.21 + blurData[i + 1] * 0.72 + blurData[i + 2] * 0.07;
             }
 
             for (let y = 1; y < h - 1; y++) {
@@ -396,15 +532,22 @@
                     const v_grad = -luma[(y - 1) * w + (x - 1)] - 2 * luma[(y - 1) * w + x] - luma[(y - 1) * w + (x + 1)]
                         + luma[(y + 1) * w + (x - 1)] + 2 * luma[(y + 1) * w + x] + luma[(y + 1) * w + (x + 1)];
 
-                    const val = Math.sqrt(h_grad * h_grad + v_grad * v_grad);
+                    let val = Math.sqrt(h_grad * h_grad + v_grad * v_grad);
                     const pixelIdx = idx * 4;
 
-                    // Draw white if it passes threshold, black otherwise
-                    if (val > config.edgeThreshold) {
-                        edges[pixelIdx] = 255;   // R
-                        edges[pixelIdx + 1] = 255; // G
-                        edges[pixelIdx + 2] = 255; // B
-                        edges[pixelIdx + 3] = 255; // A
+                    // WEIGHTED: inside face = use lower threshold (more detail),
+                    //           outside face = use higher threshold (only strong edges survive)
+                    const insideFace = faceMask ? faceMask[idx] === 1 : true;
+                    const threshold = insideFace
+                        ? config.edgeThreshold * 0.7   // 80% weight = lower bar = more edges
+                        : config.edgeThreshold * 2.0;  // 20% weight = higher bar = fewer edges
+
+                    if (val > threshold) {
+                        const brightness = insideFace ? 255 : 120; // Dimmer outside face
+                        edges[pixelIdx] = brightness;
+                        edges[pixelIdx + 1] = brightness;
+                        edges[pixelIdx + 2] = brightness;
+                        edges[pixelIdx + 3] = 255;
                     } else {
                         edges[pixelIdx] = 0;
                         edges[pixelIdx + 1] = 0;
@@ -421,15 +564,13 @@
         // Editor UI Controls
         document.getElementById('edgeThreshold').oninput = (e) => {
             config.edgeThreshold = parseInt(e.target.value);
-            generateEdges(); // Recalculate (wipes erasures)
+            generateEdges();
         };
-
         document.getElementById('eraserSize').oninput = (e) => {
             config.eraserSize = parseInt(e.target.value);
             document.getElementById('eraserCursor').style.width = `${config.eraserSize * 2}px`;
             document.getElementById('eraserCursor').style.height = `${config.eraserSize * 2}px`;
         };
-
         document.getElementById('resetEdgesBtn').onclick = generateEdges;
 
         // Eraser Logic
@@ -439,93 +580,58 @@
 
         function getMousePos(canvas, evt) {
             const rect = canvas.getBoundingClientRect();
-            // Calculate scale based on physical canvas size vs displayed size
             const scaleX = canvas.width / rect.width;
             const scaleY = canvas.height / rect.height;
-            return {
-                x: (evt.clientX - rect.left) * scaleX,
-                y: (evt.clientY - rect.top) * scaleY
-            };
+            return { x: (evt.clientX - rect.left) * scaleX, y: (evt.clientY - rect.top) * scaleY };
         }
 
-        editCanvas.addEventListener('mousedown', (e) => {
-            isErasing = true;
-            const pos = getMousePos(editCanvas, e);
-            lastX = pos.x; lastY = pos.y;
-            erase(pos.x, pos.y);
-        });
-
-        editCanvas.addEventListener('mousemove', (e) => {
-            cursor.style.display = 'block';
-            cursor.style.left = e.clientX + 'px';
-            cursor.style.top = e.clientY + 'px';
-
-            if (isErasing) {
-                const pos = getMousePos(editCanvas, e);
-                erase(pos.x, pos.y, true);
-                lastX = pos.x; lastY = pos.y;
-            }
-        });
-
+        editCanvas.addEventListener('mousedown', (e) => { isErasing = true; const pos = getMousePos(editCanvas, e); lastX = pos.x; lastY = pos.y; erase(pos.x, pos.y); });
+        editCanvas.addEventListener('mousemove', (e) => { cursor.style.display = 'block'; cursor.style.left = e.clientX + 'px'; cursor.style.top = e.clientY + 'px'; if (isErasing) { const pos = getMousePos(editCanvas, e); erase(pos.x, pos.y, true); lastX = pos.x; lastY = pos.y; } });
         editCanvas.addEventListener('mouseup', () => isErasing = false);
         editCanvas.addEventListener('mouseleave', () => { isErasing = false; cursor.style.display = 'none'; });
 
         function erase(x, y, line = false) {
-            editCtx.fillStyle = '#000'; // Draw black to remove edges
-            editCtx.strokeStyle = '#000';
-            editCtx.lineWidth = config.eraserSize * 2;
-            editCtx.lineCap = 'round';
-            editCtx.lineJoin = 'round';
-
-            if (line) {
-                editCtx.beginPath();
-                editCtx.moveTo(lastX, lastY);
-                editCtx.lineTo(x, y);
-                editCtx.stroke();
-            } else {
-                editCtx.beginPath();
-                editCtx.arc(x, y, config.eraserSize, 0, Math.PI * 2);
-                editCtx.fill();
-            }
+            editCtx.fillStyle = '#000'; editCtx.strokeStyle = '#000';
+            editCtx.lineWidth = config.eraserSize * 2; editCtx.lineCap = 'round'; editCtx.lineJoin = 'round';
+            if (line) { editCtx.beginPath(); editCtx.moveTo(lastX, lastY); editCtx.lineTo(x, y); editCtx.stroke(); }
+            else { editCtx.beginPath(); editCtx.arc(x, y, config.eraserSize, 0, Math.PI * 2); editCtx.fill(); }
         }
 
         // --- Transition Phase 2 to 3 ---
         document.getElementById('startSwarmBtn').onclick = () => {
-            // Extract the FINAL edited map
             const finalEdgeData = editCtx.getImageData(0, 0, w, h).data;
             edgeDataArray = new Uint8Array(w * h);
-
-            // Convert to simple binary map based on Red channel (since it's B&W)
             for (let i = 0; i < finalEdgeData.length; i += 4) {
-                edgeDataArray[i / 4] = finalEdgeData[i] > 128 ? 1 : 0;
+                edgeDataArray[i / 4] = finalEdgeData[i] > 60 ? 1 : 0;
             }
-
             initSimulation();
             setView('sim');
         };
 
         // --- Phase 3: Smooth Swarm Physics ---
         class Boid {
-            constructor() {
+            constructor(isNegative = false) {
                 this.x = Math.random() * w;
                 this.y = Math.random() * h;
                 this.vx = (Math.random() - 0.5) * 4;
                 this.vy = (Math.random() - 0.5) * 4;
                 this.lx = this.x;
                 this.ly = this.y;
-                this.color = { r: 150, g: 150, b: 150 };
+                this.color = { r: 200, g: 200, b: 200 };
                 this.onEdge = false;
+                this.isNegative = isNegative;
             }
 
-            applyPhysics(boids) {
+            applyPhysics(allBoids) {
                 let sepX = 0, sepY = 0, aliX = 0, aliY = 0, cohX = 0, cohY = 0;
                 let total = 0;
                 const perception = 40;
 
-                // Smooth Flocking
-                for (let i = 0; i < boids.length; i++) {
-                    const other = boids[i];
+                // Smooth Flocking (only with same-type boids)
+                for (let i = 0; i < allBoids.length; i++) {
+                    const other = allBoids[i];
                     if (other === this) continue;
+                    if (other.isNegative !== this.isNegative) continue; // Only flock with same type
 
                     const dx = other.x - this.x;
                     if (Math.abs(dx) > perception) continue;
@@ -535,7 +641,7 @@
                     const d2 = dx * dx + dy * dy;
                     if (d2 > 0 && d2 < perception * perception) {
                         const d = Math.sqrt(d2);
-                        sepX -= (dx / d) * (perception / d); // Stronger separation closer up
+                        sepX -= (dx / d) * (perception / d);
                         sepY -= (dy / d) * (perception / d);
                         aliX += other.vx;
                         aliY += other.vy;
@@ -550,7 +656,6 @@
                 if (total > 0) {
                     aliX /= total; aliY /= total;
                     cohX /= total; cohY /= total;
-
                     steerX += sepX * 0.05;
                     steerY += sepY * 0.05;
                     steerX += (aliX - this.vx) * 0.05;
@@ -559,13 +664,12 @@
                     steerY += (cohY - this.y) * 0.01;
                 }
 
-                // Edge Seeking (Smooth Steering, NO Jitter)
+                // Edge Seeking
                 const ix = Math.floor(this.x);
                 const iy = Math.floor(this.y);
                 let foundEdge = false;
                 let bestDx = 0, bestDy = 0;
 
-                // Look ahead and around
                 const r = 15;
                 for (let ox = -r; ox <= r; ox += 5) {
                     for (let oy = -r; oy <= r; oy += 5) {
@@ -583,7 +687,6 @@
 
                 if (foundEdge) {
                     this.onEdge = true;
-                    // Steer smoothly towards the center of mass of nearby edges
                     const dist = Math.sqrt(bestDx * bestDx + bestDy * bestDy) || 1;
                     const desiredX = (bestDx / dist) * config.maxSpeed;
                     const desiredY = (bestDy / dist) * config.maxSpeed;
@@ -592,20 +695,23 @@
                     steerY += (desiredY - this.vy) * 0.15 * config.smoothness;
 
                     // Sample Source Color
-                    const pIdx = (iy * w + ix) * 4;
-                    this.color = {
-                        r: sourceImgData[pIdx],
-                        g: sourceImgData[pIdx + 1],
-                        b: sourceImgData[pIdx + 2]
-                    };
+                    if (!config.monochrome) {
+                        const pIdx = (iy * w + ix) * 4;
+                        this.color = {
+                            r: sourceImgData[pIdx],
+                            g: sourceImgData[pIdx + 1],
+                            b: sourceImgData[pIdx + 2]
+                        };
+                    } else {
+                        this.color = { r: 255, g: 255, b: 255 };
+                    }
                 } else {
                     this.onEdge = false;
-                    // Gentle wander when off edge
                     steerX += (Math.random() - 0.5) * 0.1;
                     steerY += (Math.random() - 0.5) * 0.1;
                 }
 
-                // Limit Steering Force (Crucial for smooth curves)
+                // Limit Steering Force
                 const steerMag = Math.sqrt(steerX * steerX + steerY * steerY);
                 if (steerMag > config.maxForce) {
                     steerX = (steerX / steerMag) * config.maxForce;
@@ -615,7 +721,6 @@
                 this.vx += steerX;
                 this.vy += steerY;
 
-                // Limit overall speed
                 const spd = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
                 if (spd > config.maxSpeed) {
                     this.vx = (this.vx / spd) * config.maxSpeed;
@@ -625,7 +730,6 @@
                 this.lx = this.x; this.ly = this.y;
                 this.x += this.vx; this.y += this.vy;
 
-                // Wrap around edges smoothly
                 if (this.x < 0) { this.x = w; this.lx = w; }
                 if (this.x > w) { this.x = 0; this.lx = 0; }
                 if (this.y < 0) { this.y = h; this.ly = h; }
@@ -633,8 +737,20 @@
             }
 
             draw() {
-                // If in Void Mode and not on an edge, don't draw anything (true void)
-                // If Void Mode is off, draw a faint tracking line
+                if (this.isNegative) {
+                    // Negative boids ERASE: draw black lines with higher width
+                    if (this.onEdge) {
+                        simCtx.strokeStyle = `rgba(0, 0, 0, 0.6)`;
+                        simCtx.lineWidth = 2.5;
+                        simCtx.beginPath();
+                        simCtx.moveTo(this.lx, this.ly);
+                        simCtx.lineTo(this.x, this.y);
+                        simCtx.stroke();
+                    }
+                    return;
+                }
+
+                // Positive boid drawing
                 let alpha = 0;
                 if (this.onEdge) {
                     alpha = 0.8;
@@ -657,15 +773,65 @@
             simCtx.fillStyle = '#000';
             simCtx.fillRect(0, 0, w, h);
 
-            boids = Array.from({ length: config.agents }, () => new Boid());
+            const numNeg = Math.floor(config.agents * config.negativeRatio);
+            const numPos = config.agents - numNeg;
+
+            boids = [];
+            for (let i = 0; i < numPos; i++) boids.push(new Boid(false));
+            for (let i = 0; i < numNeg; i++) boids.push(new Boid(true));
+
             cancelAnimationFrame(simulationRaf);
             animateSim();
         }
 
         function animateSim() {
-            // Apply a very subtle fade to keep the image feeling "alive"
-            simCtx.fillStyle = 'rgba(0,0,0,0.005)';
+            // Very subtle fade — longer trails
+            simCtx.fillStyle = 'rgba(0,0,0,0.003)';
             simCtx.fillRect(0, 0, w, h);
+
+            // --- 1-MIN EVOLUTION ---
+            if (isEvolving) {
+                const elapsedSec = (performance.now() - evolveStart) / 1000;
+                const clockEl = document.getElementById('clockDisplay');
+                const phaseEl = document.getElementById('phaseDisplay');
+
+                if (elapsedSec <= 60) {
+                    const m = Math.floor(elapsedSec / 60).toString().padStart(2, '0');
+                    const s = Math.floor(elapsedSec % 60).toString().padStart(2, '0');
+                    clockEl.innerText = `${m}:${s}`;
+                }
+
+                if (elapsedSec < 15) {
+                    // CHAOS: 100 agents, low smoothness
+                    phaseEl.innerText = "Chaos";
+                    const targetAgents = 100;
+                    config.smoothness = 0.2;
+                    config.maxForce = 0.05;
+                    resizeFlock(targetAgents);
+
+                } else if (elapsedSec < 45) {
+                    // DISCOVERY: ramp from 100 to 2000, ramp smoothness
+                    phaseEl.innerText = "Discovery";
+                    const progress = (elapsedSec - 15) / 30; // 0 to 1
+                    const targetAgents = Math.floor(100 + progress * 1900);
+                    config.smoothness = 0.2 + progress * 0.6;
+                    config.maxForce = 0.05 + progress * 0.05;
+                    resizeFlock(targetAgents);
+
+                } else if (elapsedSec < 60) {
+                    // SOLIDIFICATION: 2000 agents, max smoothness, less fade
+                    phaseEl.innerText = "Solidification";
+                    config.smoothness = 1.0;
+                    config.maxForce = 0.1;
+                    resizeFlock(2000);
+
+                } else {
+                    // Complete
+                    phaseEl.innerText = "Complete";
+                    clockEl.innerText = "01:00";
+                    isEvolving = false;
+                }
+            }
 
             for (let i = 0; i < boids.length; i++) {
                 boids[i].applyPhysics(boids);
@@ -674,23 +840,46 @@
             simulationRaf = requestAnimationFrame(animateSim);
         }
 
+        function resizeFlock(target) {
+            const numNeg = Math.floor(target * config.negativeRatio);
+            const numPos = target - numNeg;
+            const totalTarget = target;
+
+            while (boids.length < totalTarget) {
+                // Maintain ratio: mostly positive, some negative
+                const isNeg = boids.filter(b => b.isNegative).length < numNeg;
+                boids.push(new Boid(isNeg));
+            }
+            if (boids.length > totalTarget) {
+                boids.length = totalTarget;
+            }
+            // Update config for slider display
+            config.agents = totalTarget;
+            document.getElementById('simAgents').value = totalTarget;
+        }
+
         // Sim UI Controls
         document.getElementById('simAgents').oninput = (e) => {
             config.agents = parseInt(e.target.value);
-            if (boids.length < config.agents) {
-                while (boids.length < config.agents) boids.push(new Boid());
-            } else {
-                boids.length = config.agents;
-            }
+            resizeFlock(config.agents);
         };
 
         document.getElementById('simSmoothness').oninput = (e) => {
-            // Map 1-10 slider to 0.1 to 1.0 multiplier
             config.smoothness = parseInt(e.target.value) / 10;
         };
 
         document.getElementById('simVoidToggle').onchange = (e) => {
             config.voidMode = e.target.checked;
+        };
+
+        document.getElementById('monochromeToggle').onchange = (e) => {
+            config.monochrome = e.target.checked;
+        };
+
+        document.getElementById('evolveBtn').onclick = () => {
+            isEvolving = true;
+            evolveStart = performance.now();
+            document.getElementById('simClock').style.opacity = '1';
         };
 
         document.getElementById('clearSimBtn').onclick = () => {
