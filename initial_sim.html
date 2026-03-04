@@ -941,10 +941,10 @@
                     case 'GOTO': {
                         const dx = cmd.tx - this.x, dy = cmd.ty - this.y;
                         const dist = Math.sqrt(dx * dx + dy * dy);
-                        if (dist < 5) { this.command = null; break; }
+                        if (dist < 8) { this.command = null; break; }
                         // Curved transit: steer toward target + gentle perpendicular drift
-                        const speed = cmd.speed || 6;
-                        const drift = Math.sin(this.cmdStep * 0.15) * 0.4;
+                        const speed = cmd.speed || 7;
+                        const drift = Math.sin(this.cmdStep * 0.12) * 0.6;
                         const nx = dx / dist, ny = dy / dist;
                         this.vx = nx * speed + (-ny) * drift;
                         this.vy = ny * speed + nx * drift;
@@ -952,27 +952,83 @@
                         this.x += this.vx; this.y += this.vy;
                         this.x = Math.max(1, Math.min(w - 1, this.x));
                         this.y = Math.max(1, Math.min(h - 1, this.y));
-                        this.cmdLineWidth = cmd.lineWidth || 0.2;
-                        this.cmdAlpha = cmd.alpha || 0.04;
+                        // Nearly invisible transit lines
+                        this.cmdLineWidth = 0.15;
+                        this.cmdAlpha = 0.015;
                         this.decayError();
                         break;
                     }
                     case 'SCRIBBLE': {
                         if (this.cmdStep >= cmd.steps) { this.command = null; break; }
-                        // Orbiting scribble around center with variable radius
-                        this.scribbleAngle += cmd.tightness * (0.3 + Math.random() * 0.4);
-                        const r = cmd.radius * (0.4 + Math.random() * 0.6);
-                        const targetX = cmd.cx + Math.cos(this.scribbleAngle) * r;
-                        const targetY = cmd.cy + Math.sin(this.scribbleAngle) * r;
-                        // Smoothly move toward orbit point
+                        // CHAOTIC LOCAL MOVEMENT — force-based, not circular orbits
+                        // This mimics the manual mode's behavior but contained to a region
+                        const ix = Math.floor(this.x), iy = Math.floor(this.y);
+                        const pidx = iy * w + ix;
+                        const ld = (ix >= 0 && ix < w && iy >= 0 && iy < h) ? darknessMap[pidx] : 0;
+                        const le = (ix >= 0 && ix < w && iy >= 0 && iy < h) ? errorMap[pidx] : 0;
+                        this.smoothDarkness = this.smoothDarkness * 0.9 + ld * 0.1;
+
+                        let sx = 0, sy = 0;
+
+                        // Local error attraction (pull toward nearby high-error pixels)
+                        const sr = 20;
+                        for (let ox = -sr; ox <= sr; ox += 4) {
+                            for (let oy = -sr; oy <= sr; oy += 4) {
+                                const cx = ix + ox, cy = iy + oy;
+                                if (cx >= 0 && cx < w && cy >= 0 && cy < h) {
+                                    const e = errorMap[cy * w + cx];
+                                    if (e > 0.04) {
+                                        const d2 = Math.sqrt(ox * ox + oy * oy) || 1;
+                                        sx += (ox / d2) * e / d2 * 0.08;
+                                        sy += (oy / d2) * e / d2 * 0.08;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Flow field alignment (follow contours)
+                        if (ix >= 1 && ix < w - 1 && iy >= 1 && iy < h - 1) {
+                            sx += flowFieldX[pidx] * 0.04 * ld * 2;
+                            sy += flowFieldY[pidx] * 0.04 * ld * 2;
+                        }
+
+                        // Chaotic wander (tighter in dark areas)
+                        const dwl = 1.0 + ld * 2.0;
+                        this.wanderAngle += (Math.random() - 0.5) * 0.5 * dwl;
+                        sx += Math.cos(this.wanderAngle) * 0.025;
+                        sy += Math.sin(this.wanderAngle) * 0.025;
+
+                        // Soft containment: gentle pull back toward region center
+                        const dx = cmd.cx - this.x, dy = cmd.cy - this.y;
+                        const dd = Math.sqrt(dx * dx + dy * dy);
+                        const containR = cmd.radius * 1.8;
+                        if (dd > containR * 0.5) {
+                            const pullStrength = 0.01 + (dd > containR ? 0.08 : 0);
+                            sx += (dx / dd) * pullStrength;
+                            sy += (dy / dd) * pullStrength;
+                        }
+
+                        // Repulsion from over-drawn spots
+                        if (le < 0.02) {
+                            sx += (Math.random() - 0.5) * 0.12;
+                            sy += (Math.random() - 0.5) * 0.12;
+                        }
+
+                        // Border avoidance
+                        if (this.x < 15) sx += 0.06; if (this.x > w - 15) sx -= 0.06;
+                        if (this.y < 15) sy += 0.06; if (this.y > h - 15) sy -= 0.06;
+
+                        this.vx += sx; this.vy += sy;
+                        const spd = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                        const maxS = cmd.speed || 3;
+                        if (spd > maxS) { this.vx = (this.vx / spd) * maxS; this.vy = (this.vy / spd) * maxS; }
+
                         this.lx = this.x; this.ly = this.y;
-                        this.x += (targetX - this.x) * 0.3;
-                        this.y += (targetY - this.y) * 0.3;
+                        this.x += this.vx; this.y += this.vy;
                         this.x = Math.max(1, Math.min(w - 1, this.x));
                         this.y = Math.max(1, Math.min(h - 1, this.y));
-                        this.vx = this.x - this.lx; this.vy = this.y - this.ly;
-                        this.cmdLineWidth = cmd.lineWidth || 0.5;
-                        this.cmdAlpha = cmd.alpha || 0.15;
+                        this.cmdLineWidth = cmd.lineWidth || 0.3;
+                        this.cmdAlpha = cmd.alpha || 0.08;
                         this.decayError();
                         break;
                     }
@@ -981,13 +1037,12 @@
                         const ix = Math.floor(this.x), iy = Math.floor(this.y);
                         if (ix >= 1 && ix < w - 1 && iy >= 1 && iy < h - 1) {
                             const pidx = iy * w + ix;
-                            const fs = cmd.flowStrength || 0.4;
-                            this.vx = this.vx * 0.7 + flowFieldX[pidx] * fs * 3;
-                            this.vy = this.vy * 0.7 + flowFieldY[pidx] * fs * 3;
-                            // Add gentle wander for organic feel
-                            this.wanderAngle += (Math.random() - 0.5) * 0.3;
-                            this.vx += Math.cos(this.wanderAngle) * 0.3;
-                            this.vy += Math.sin(this.wanderAngle) * 0.3;
+                            const fs = cmd.flowStrength || 0.3;
+                            this.vx = this.vx * 0.7 + flowFieldX[pidx] * fs * 2.5;
+                            this.vy = this.vy * 0.7 + flowFieldY[pidx] * fs * 2.5;
+                            this.wanderAngle += (Math.random() - 0.5) * 0.25;
+                            this.vx += Math.cos(this.wanderAngle) * 0.2;
+                            this.vy += Math.sin(this.wanderAngle) * 0.2;
                         }
                         const cSpd = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
                         const cMax = cmd.speed || 3;
@@ -996,14 +1051,13 @@
                         this.x += this.vx; this.y += this.vy;
                         this.x = Math.max(1, Math.min(w - 1, this.x));
                         this.y = Math.max(1, Math.min(h - 1, this.y));
-                        this.cmdLineWidth = cmd.lineWidth || 0.4;
-                        this.cmdAlpha = cmd.alpha || 0.12;
+                        this.cmdLineWidth = cmd.lineWidth || 0.3;
+                        this.cmdAlpha = cmd.alpha || 0.08;
                         this.decayError();
                         break;
                     }
                     case 'WANDER': {
                         if (this.cmdStep >= cmd.steps) { this.command = null; break; }
-                        // Bounded force-based wander within a region
                         const ix = Math.floor(this.x), iy = Math.floor(this.y);
                         const pidx = iy * w + ix;
                         const ld = (ix >= 0 && ix < w && iy >= 0 && iy < h) ? darknessMap[pidx] : 0;
@@ -1020,39 +1074,37 @@
                                     const e = errorMap[cy * w + cx];
                                     if (e > 0.04) {
                                         const d2 = Math.sqrt(ox * ox + oy * oy) || 1;
-                                        sx += (ox / d2) * e / d2 * 0.1;
-                                        sy += (oy / d2) * e / d2 * 0.1;
+                                        sx += (ox / d2) * e / d2 * 0.08;
+                                        sy += (oy / d2) * e / d2 * 0.08;
                                     }
                                 }
                             }
                         }
-                        // Wander
                         this.wanderAngle += (Math.random() - 0.5) * (0.4 + ld * 1.5);
-                        sx += Math.cos(this.wanderAngle) * 0.03;
-                        sy += Math.sin(this.wanderAngle) * 0.03;
-                        // Soft containment: pull back to region center
+                        sx += Math.cos(this.wanderAngle) * 0.025;
+                        sy += Math.sin(this.wanderAngle) * 0.025;
+                        // Soft containment
                         if (cmd.cx !== undefined) {
                             const dx = cmd.cx - this.x, dy = cmd.cy - this.y;
                             const dd = Math.sqrt(dx * dx + dy * dy);
                             if (dd > cmd.radius * 1.5) {
-                                sx += (dx / dd) * 0.06; sy += (dy / dd) * 0.06;
+                                sx += (dx / dd) * 0.04; sy += (dy / dd) * 0.04;
                             }
                         }
-                        // Border
                         if (this.x < 15) sx += 0.05; if (this.x > w - 15) sx -= 0.05;
                         if (this.y < 15) sy += 0.05; if (this.y > h - 15) sy -= 0.05;
 
                         this.vx += sx; this.vy += sy;
                         const ws = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-                        const wMax = cmd.speed || 4;
+                        const wMax = cmd.speed || 3.5;
                         if (ws > wMax) { this.vx = (this.vx / ws) * wMax; this.vy = (this.vy / ws) * wMax; }
 
                         this.lx = this.x; this.ly = this.y;
                         this.x += this.vx; this.y += this.vy;
                         this.x = Math.max(1, Math.min(w - 1, this.x));
                         this.y = Math.max(1, Math.min(h - 1, this.y));
-                        this.cmdLineWidth = cmd.lineWidth || 0.4;
-                        this.cmdAlpha = cmd.alpha || 0.1;
+                        this.cmdLineWidth = cmd.lineWidth || 0.3;
+                        this.cmdAlpha = cmd.alpha || 0.06;
                         this.decayError();
                         break;
                     }
@@ -1295,13 +1347,13 @@
                 const cov = this.globalCoverage / 100;
 
                 // Compute local settings from region properties + global progress
-                const intensity = lerp(0.08, 0.6, d) * lerp(0.7, 1.3, cov);
-                const lineW = lerp(0.3, 1.5, d) * lerp(0.6, 1.2, cov);
-                const scribbleRadius = lerp(35, 8, d) * lerp(1.2, 0.7, cov);
-                const tightness = lerp(0.3, 0.9, d);
-                const speed = lerp(5, 1.5, d);
-                const scribbleCount = Math.floor(lerp(2, 7, d * e));
-                const stepsPerScribble = Math.floor(lerp(80, 250, d));
+                // Key: keep alpha LOW so density builds gradually through repeated visits
+                const intensity = lerp(0.03, 0.18, d) * lerp(0.8, 1.3, cov);
+                const lineW = lerp(0.2, 0.7, d) * lerp(0.7, 1.2, cov);
+                const scribbleRadius = lerp(40, 12, d) * lerp(1.3, 0.6, cov);
+                const speed = lerp(4, 1.5, d);
+                const scribbleCount = Math.floor(lerp(2, 6, d * e));
+                const stepsPerScribble = Math.floor(lerp(100, 300, d));
 
                 for (let i = 0; i < scribbleCount; i++) {
                     const pt = pickHighErrorPoint(region);
@@ -1311,7 +1363,6 @@
                         type: 'SCRIBBLE',
                         cx: pt.x, cy: pt.y,
                         radius: scribbleRadius * (0.7 + Math.random() * 0.6),
-                        tightness: tightness,
                         steps: stepsPerScribble,
                         lineWidth: lineW,
                         alpha: intensity,
