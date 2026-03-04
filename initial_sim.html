@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zen Swarm Studio</title>
+    <style>
+        :root {
+            --bg: #050505;
+            --panel: rgba(15, 15, 18, 0.9);
+            --text: #e0e0e0;
+            --dim: #777;
+            --accent: #fff;
+            --font: 'Inter', -apple-system, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            outline: none;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Views */
+        .view {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 0.5s ease;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .view.active {
+            opacity: 1;
+            pointer-events: auto;
+            z-index: 20;
+        }
+
+        /* Top Navigation / Status */
+        .top-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 1.5rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 100;
+            pointer-events: none;
+            /* Let clicks pass through to canvas unless on a button */
+        }
+
+        .top-bar>* {
+            pointer-events: auto;
+        }
+
+        .logo {
+            font-weight: 300;
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            color: var(--dim);
+        }
+
+        .phase-indicator {
+            font-size: 0.75rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--accent);
+        }
+
+        /* Floating UI Panels */
+        .floating-panel {
+            position: absolute;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--panel);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            padding: 1rem 2rem;
+            border-radius: 50px;
+            display: flex;
+            gap: 2rem;
+            align-items: center;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+        }
+
+        .control-group label {
+            font-size: 0.6rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--dim);
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 100px;
+            height: 2px;
+            background: #333;
+            border-radius: 1px;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 10px;
+            height: 10px;
+            background: var(--accent);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        /* Buttons */
+        .btn {
+            background: transparent;
+            border: 1px solid #444;
+            color: var(--text);
+            padding: 0.6rem 1.2rem;
+            border-radius: 25px;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: #000;
+            border: none;
+            font-weight: 600;
+        }
+
+        .btn-primary:hover {
+            background: #e0e0e0;
+            transform: translateY(-1px);
+        }
+
+        /* Canvas Containers */
+        .canvas-wrapper {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            height: 100%;
+        }
+
+        canvas {
+            max-width: 90vw;
+            max-height: 80vh;
+            box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
+            background: #000;
+            border-radius: 4px;
+        }
+
+        /* Editor specific cursor */
+        #editCanvas {
+            cursor: crosshair;
+        }
+
+        .eraser-cursor {
+            position: fixed;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            border-radius: 50%;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            z-index: 9999;
+            display: none;
+        }
+
+        /* Splash Screen */
+        .splash-content {
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            align-items: center;
+        }
+
+        h1 {
+            font-size: 2rem;
+            font-weight: 200;
+            letter-spacing: 0.4em;
+            text-transform: uppercase;
+        }
+
+        .hidden-input {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="top-bar">
+        <div class="logo">Swarm Studio</div>
+        <div class="phase-indicator" id="phaseIndicator">Phase 1 / Upload</div>
+        <button class="btn" style="opacity: 0; pointer-events: none;" id="restartBtn">Restart</button>
+    </div>
+
+    <!-- VIEW 1: SPLASH -->
+    <div class="view active" id="view-splash">
+        <div class="splash-content">
+            <h1>Swarm Studio</h1>
+            <p style="font-size: 0.8rem; color: var(--dim); letter-spacing: 0.1em; max-width: 400px; line-height: 1.5;">
+                A multi-phase generative art tool. Upload an image, isolate the exact edges you want the swarm to trace,
+                and deploy the flock.
+            </p>
+            <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Load Image</button>
+        </div>
+    </div>
+
+    <!-- VIEW 2: EDGE EDITOR -->
+    <div class="view" id="view-edit">
+        <div class="canvas-wrapper">
+            <canvas id="editCanvas"></canvas>
+            <div class="eraser-cursor" id="eraserCursor"></div>
+        </div>
+
+        <div class="floating-panel">
+            <div class="control-group">
+                <label>Edge Detail</label>
+                <input type="range" id="edgeThreshold" min="10" max="150" value="45">
+            </div>
+            <div class="control-group">
+                <label>Eraser Size</label>
+                <input type="range" id="eraserSize" min="5" max="100" value="30">
+            </div>
+            <div style="width: 1px; height: 30px; background: #333; margin: 0 10px;"></div>
+            <button class="btn" id="resetEdgesBtn">Reset Edges</button>
+            <button class="btn btn-primary" id="startSwarmBtn">Deploy Swarm</button>
+        </div>
+    </div>
+
+    <!-- VIEW 3: SWARM SIMULATION -->
+    <div class="view" id="view-sim">
+        <div class="canvas-wrapper">
+            <canvas id="simCanvas"></canvas>
+        </div>
+
+        <div class="floating-panel">
+            <div class="control-group">
+                <label>Swarm Density</label>
+                <input type="range" id="simAgents" min="100" max="1500" value="600">
+            </div>
+            <div class="control-group">
+                <label>Flow Smoothness</label>
+                <input type="range" id="simSmoothness" min="1" max="10" value="8">
+            </div>
+            <div class="control-group" style="flex-direction: row; align-items: center; gap: 10px;">
+                <label>Void Mode</label>
+                <input type="checkbox" id="simVoidToggle" checked style="accent-color: var(--accent);">
+            </div>
+            <div style="width: 1px; height: 30px; background: #333; margin: 0 10px;"></div>
+            <button class="btn" id="clearSimBtn">Wipe Canvas</button>
+            <button class="btn btn-primary" id="exportBtn">Export Art</button>
+        </div>
+    </div>
+
+    <input type="file" id="fileInput" class="hidden-input" accept="image/*">
+
+    <script>
+        // --- Core Elements ---
+        const views = {
+            splash: document.getElementById('view-splash'),
+            edit: document.getElementById('view-edit'),
+            sim: document.getElementById('view-sim')
+        };
+        const editCanvas = document.getElementById('editCanvas');
+        const editCtx = editCanvas.getContext('2d', { willReadFrequently: true });
+        const simCanvas = document.getElementById('simCanvas');
+        const simCtx = simCanvas.getContext('2d', { willReadFrequently: true });
+        const phaseIndicator = document.getElementById('phaseIndicator');
+        const restartBtn = document.getElementById('restartBtn');
+
+        // --- Global State ---
+        let sourceImgData = null; // Raw pixels from original image
+        let originalImg = null;
+        let w, h;
+        let boids = [];
+        let simulationRaf;
+        let edgeDataArray = null;
+
+        // --- Config ---
+        const config = {
+            eraserSize: 30,
+            edgeThreshold: 45,
+            agents: 600,
+            maxSpeed: 2.5,
+            maxForce: 0.1,
+            voidMode: true, // Only show lines on edges
+            smoothness: 0.8 // 0.1 to 1.0 (Mapped from 1-10 slider)
+        };
+
+        // --- Navigation ---
+        function setView(viewName) {
+            Object.values(views).forEach(v => v.classList.remove('active'));
+            views[viewName].classList.add('active');
+
+            if (viewName === 'splash') {
+                phaseIndicator.innerText = "Phase 1 / Upload";
+                restartBtn.style.opacity = "0";
+                restartBtn.style.pointerEvents = "none";
+                cancelAnimationFrame(simulationRaf);
+            } else if (viewName === 'edit') {
+                phaseIndicator.innerText = "Phase 2 / Isolate Edges (Erase Unwanted Lines)";
+                restartBtn.style.opacity = "1";
+                restartBtn.style.pointerEvents = "auto";
+            } else if (viewName === 'sim') {
+                phaseIndicator.innerText = "Phase 3 / Swarm Tracing";
+            }
+        }
+
+        restartBtn.onclick = () => setView('splash');
+
+        // --- Phase 1: Upload ---
+        document.getElementById('fileInput').onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                originalImg = new Image();
+                originalImg.onload = () => initEditor(originalImg);
+                originalImg.src = ev.target.result;
+            };
+            reader.readAsDataURL(file);
+        };
+
+        // --- Phase 2: Edge Editor ---
+        function initEditor(img) {
+            // Calculate dimensions fitting the screen
+            const maxW = window.innerWidth * 0.9;
+            const maxH = window.innerHeight * 0.8;
+            const scale = Math.min(maxW / img.width, maxH / img.height);
+
+            w = editCanvas.width = simCanvas.width = Math.max(1, Math.floor(img.width * scale));
+            h = editCanvas.height = simCanvas.height = Math.max(1, Math.floor(img.height * scale));
+
+            // Extract raw data once
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = w; tempCanvas.height = h;
+            const tCtx = tempCanvas.getContext('2d');
+            tCtx.drawImage(img, 0, 0, w, h);
+            sourceImgData = tCtx.getImageData(0, 0, w, h).data;
+
+            generateEdges();
+            setView('edit');
+        }
+
+        function generateEdges() {
+            // Sobel Edge Detection mapped directly to the Edit Canvas
+            const data = sourceImgData;
+            const edges = new Uint8ClampedArray(w * h * 4);
+            const luma = new Uint8Array(w * h);
+
+            for (let i = 0; i < data.length; i += 4) {
+                luma[i / 4] = data[i] * 0.21 + data[i + 1] * 0.72 + data[i + 2] * 0.07;
+            }
+
+            for (let y = 1; y < h - 1; y++) {
+                for (let x = 1; x < w - 1; x++) {
+                    const idx = y * w + x;
+                    const h_grad = -luma[(y - 1) * w + (x - 1)] + luma[(y - 1) * w + (x + 1)]
+                        - 2 * luma[y * w + (x - 1)] + 2 * luma[y * w + (x + 1)]
+                        - luma[(y + 1) * w + (x - 1)] + luma[(y + 1) * w + (x + 1)];
+                    const v_grad = -luma[(y - 1) * w + (x - 1)] - 2 * luma[(y - 1) * w + x] - luma[(y - 1) * w + (x + 1)]
+                        + luma[(y + 1) * w + (x - 1)] + 2 * luma[(y + 1) * w + x] + luma[(y + 1) * w + (x + 1)];
+
+                    const val = Math.sqrt(h_grad * h_grad + v_grad * v_grad);
+                    const pixelIdx = idx * 4;
+
+                    // Draw white if it passes threshold, black otherwise
+                    if (val > config.edgeThreshold) {
+                        edges[pixelIdx] = 255;   // R
+                        edges[pixelIdx + 1] = 255; // G
+                        edges[pixelIdx + 2] = 255; // B
+                        edges[pixelIdx + 3] = 255; // A
+                    } else {
+                        edges[pixelIdx] = 0;
+                        edges[pixelIdx + 1] = 0;
+                        edges[pixelIdx + 2] = 0;
+                        edges[pixelIdx + 3] = 255;
+                    }
+                }
+            }
+
+            const edgeImgData = new ImageData(edges, w, h);
+            editCtx.putImageData(edgeImgData, 0, 0);
+        }
+
+        // Editor UI Controls
+        document.getElementById('edgeThreshold').oninput = (e) => {
+            config.edgeThreshold = parseInt(e.target.value);
+            generateEdges(); // Recalculate (wipes erasures)
+        };
+
+        document.getElementById('eraserSize').oninput = (e) => {
+            config.eraserSize = parseInt(e.target.value);
+            document.getElementById('eraserCursor').style.width = `${config.eraserSize * 2}px`;
+            document.getElementById('eraserCursor').style.height = `${config.eraserSize * 2}px`;
+        };
+
+        document.getElementById('resetEdgesBtn').onclick = generateEdges;
+
+        // Eraser Logic
+        let isErasing = false;
+        let lastX, lastY;
+        const cursor = document.getElementById('eraserCursor');
+
+        function getMousePos(canvas, evt) {
+            const rect = canvas.getBoundingClientRect();
+            // Calculate scale based on physical canvas size vs displayed size
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            return {
+                x: (evt.clientX - rect.left) * scaleX,
+                y: (evt.clientY - rect.top) * scaleY
+            };
+        }
+
+        editCanvas.addEventListener('mousedown', (e) => {
+            isErasing = true;
+            const pos = getMousePos(editCanvas, e);
+            lastX = pos.x; lastY = pos.y;
+            erase(pos.x, pos.y);
+        });
+
+        editCanvas.addEventListener('mousemove', (e) => {
+            cursor.style.display = 'block';
+            cursor.style.left = e.clientX + 'px';
+            cursor.style.top = e.clientY + 'px';
+
+            if (isErasing) {
+                const pos = getMousePos(editCanvas, e);
+                erase(pos.x, pos.y, true);
+                lastX = pos.x; lastY = pos.y;
+            }
+        });
+
+        editCanvas.addEventListener('mouseup', () => isErasing = false);
+        editCanvas.addEventListener('mouseleave', () => { isErasing = false; cursor.style.display = 'none'; });
+
+        function erase(x, y, line = false) {
+            editCtx.fillStyle = '#000'; // Draw black to remove edges
+            editCtx.strokeStyle = '#000';
+            editCtx.lineWidth = config.eraserSize * 2;
+            editCtx.lineCap = 'round';
+            editCtx.lineJoin = 'round';
+
+            if (line) {
+                editCtx.beginPath();
+                editCtx.moveTo(lastX, lastY);
+                editCtx.lineTo(x, y);
+                editCtx.stroke();
+            } else {
+                editCtx.beginPath();
+                editCtx.arc(x, y, config.eraserSize, 0, Math.PI * 2);
+                editCtx.fill();
+            }
+        }
+
+        // --- Transition Phase 2 to 3 ---
+        document.getElementById('startSwarmBtn').onclick = () => {
+            // Extract the FINAL edited map
+            const finalEdgeData = editCtx.getImageData(0, 0, w, h).data;
+            edgeDataArray = new Uint8Array(w * h);
+
+            // Convert to simple binary map based on Red channel (since it's B&W)
+            for (let i = 0; i < finalEdgeData.length; i += 4) {
+                edgeDataArray[i / 4] = finalEdgeData[i] > 128 ? 1 : 0;
+            }
+
+            initSimulation();
+            setView('sim');
+        };
+
+        // --- Phase 3: Smooth Swarm Physics ---
+        class Boid {
+            constructor() {
+                this.x = Math.random() * w;
+                this.y = Math.random() * h;
+                this.vx = (Math.random() - 0.5) * 4;
+                this.vy = (Math.random() - 0.5) * 4;
+                this.lx = this.x;
+                this.ly = this.y;
+                this.color = { r: 150, g: 150, b: 150 };
+                this.onEdge = false;
+            }
+
+            applyPhysics(boids) {
+                let sepX = 0, sepY = 0, aliX = 0, aliY = 0, cohX = 0, cohY = 0;
+                let total = 0;
+                const perception = 40;
+
+                // Smooth Flocking
+                for (let i = 0; i < boids.length; i++) {
+                    const other = boids[i];
+                    if (other === this) continue;
+
+                    const dx = other.x - this.x;
+                    if (Math.abs(dx) > perception) continue;
+                    const dy = other.y - this.y;
+                    if (Math.abs(dy) > perception) continue;
+
+                    const d2 = dx * dx + dy * dy;
+                    if (d2 > 0 && d2 < perception * perception) {
+                        const d = Math.sqrt(d2);
+                        sepX -= (dx / d) * (perception / d); // Stronger separation closer up
+                        sepY -= (dy / d) * (perception / d);
+                        aliX += other.vx;
+                        aliY += other.vy;
+                        cohX += other.x;
+                        cohY += other.y;
+                        total++;
+                    }
+                }
+
+                let steerX = 0, steerY = 0;
+
+                if (total > 0) {
+                    aliX /= total; aliY /= total;
+                    cohX /= total; cohY /= total;
+
+                    steerX += sepX * 0.05;
+                    steerY += sepY * 0.05;
+                    steerX += (aliX - this.vx) * 0.05;
+                    steerY += (aliY - this.vy) * 0.05;
+                    steerX += (cohX - this.x) * 0.01;
+                    steerY += (cohY - this.y) * 0.01;
+                }
+
+                // Edge Seeking (Smooth Steering, NO Jitter)
+                const ix = Math.floor(this.x);
+                const iy = Math.floor(this.y);
+                let foundEdge = false;
+                let bestDx = 0, bestDy = 0;
+
+                // Look ahead and around
+                const r = 15;
+                for (let ox = -r; ox <= r; ox += 5) {
+                    for (let oy = -r; oy <= r; oy += 5) {
+                        const cx = ix + ox;
+                        const cy = iy + oy;
+                        if (cx >= 0 && cx < w && cy >= 0 && cy < h) {
+                            if (edgeDataArray[cy * w + cx] === 1) {
+                                foundEdge = true;
+                                bestDx += ox;
+                                bestDy += oy;
+                            }
+                        }
+                    }
+                }
+
+                if (foundEdge) {
+                    this.onEdge = true;
+                    // Steer smoothly towards the center of mass of nearby edges
+                    const dist = Math.sqrt(bestDx * bestDx + bestDy * bestDy) || 1;
+                    const desiredX = (bestDx / dist) * config.maxSpeed;
+                    const desiredY = (bestDy / dist) * config.maxSpeed;
+
+                    steerX += (desiredX - this.vx) * 0.15 * config.smoothness;
+                    steerY += (desiredY - this.vy) * 0.15 * config.smoothness;
+
+                    // Sample Source Color
+                    const pIdx = (iy * w + ix) * 4;
+                    this.color = {
+                        r: sourceImgData[pIdx],
+                        g: sourceImgData[pIdx + 1],
+                        b: sourceImgData[pIdx + 2]
+                    };
+                } else {
+                    this.onEdge = false;
+                    // Gentle wander when off edge
+                    steerX += (Math.random() - 0.5) * 0.1;
+                    steerY += (Math.random() - 0.5) * 0.1;
+                }
+
+                // Limit Steering Force (Crucial for smooth curves)
+                const steerMag = Math.sqrt(steerX * steerX + steerY * steerY);
+                if (steerMag > config.maxForce) {
+                    steerX = (steerX / steerMag) * config.maxForce;
+                    steerY = (steerY / steerMag) * config.maxForce;
+                }
+
+                this.vx += steerX;
+                this.vy += steerY;
+
+                // Limit overall speed
+                const spd = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                if (spd > config.maxSpeed) {
+                    this.vx = (this.vx / spd) * config.maxSpeed;
+                    this.vy = (this.vy / spd) * config.maxSpeed;
+                }
+
+                this.lx = this.x; this.ly = this.y;
+                this.x += this.vx; this.y += this.vy;
+
+                // Wrap around edges smoothly
+                if (this.x < 0) { this.x = w; this.lx = w; }
+                if (this.x > w) { this.x = 0; this.lx = 0; }
+                if (this.y < 0) { this.y = h; this.ly = h; }
+                if (this.y > h) { this.y = 0; this.ly = 0; }
+            }
+
+            draw() {
+                // If in Void Mode and not on an edge, don't draw anything (true void)
+                // If Void Mode is off, draw a faint tracking line
+                let alpha = 0;
+                if (this.onEdge) {
+                    alpha = 0.8;
+                } else if (!config.voidMode) {
+                    alpha = 0.05;
+                }
+
+                if (alpha > 0) {
+                    simCtx.strokeStyle = `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, ${alpha})`;
+                    simCtx.lineWidth = this.onEdge ? 1 : 0.5;
+                    simCtx.beginPath();
+                    simCtx.moveTo(this.lx, this.ly);
+                    simCtx.lineTo(this.x, this.y);
+                    simCtx.stroke();
+                }
+            }
+        }
+
+        function initSimulation() {
+            simCtx.fillStyle = '#000';
+            simCtx.fillRect(0, 0, w, h);
+
+            boids = Array.from({ length: config.agents }, () => new Boid());
+            cancelAnimationFrame(simulationRaf);
+            animateSim();
+        }
+
+        function animateSim() {
+            // Apply a very subtle fade to keep the image feeling "alive"
+            simCtx.fillStyle = 'rgba(0,0,0,0.005)';
+            simCtx.fillRect(0, 0, w, h);
+
+            for (let i = 0; i < boids.length; i++) {
+                boids[i].applyPhysics(boids);
+                boids[i].draw();
+            }
+            simulationRaf = requestAnimationFrame(animateSim);
+        }
+
+        // Sim UI Controls
+        document.getElementById('simAgents').oninput = (e) => {
+            config.agents = parseInt(e.target.value);
+            if (boids.length < config.agents) {
+                while (boids.length < config.agents) boids.push(new Boid());
+            } else {
+                boids.length = config.agents;
+            }
+        };
+
+        document.getElementById('simSmoothness').oninput = (e) => {
+            // Map 1-10 slider to 0.1 to 1.0 multiplier
+            config.smoothness = parseInt(e.target.value) / 10;
+        };
+
+        document.getElementById('simVoidToggle').onchange = (e) => {
+            config.voidMode = e.target.checked;
+        };
+
+        document.getElementById('clearSimBtn').onclick = () => {
+            simCtx.fillStyle = '#000';
+            simCtx.fillRect(0, 0, w, h);
+        };
+
+        document.getElementById('exportBtn').onclick = () => {
+            const link = document.createElement('a');
+            link.download = `swarm-art-${Date.now()}.png`;
+            link.href = simCanvas.toDataURL('image/png', 1.0);
+            link.click();
+        };
+
+    </script>
+</body>
+
+</html>
