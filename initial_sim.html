@@ -483,8 +483,8 @@
             <div class="dev-row"><label>Max Speed</label><input type="range" id="p-maxSpeed" min="0.5" max="25"
                     step="0.5" value="3"><span class="dev-val" id="v-maxSpeed">3</span><span class="tip">?<span
                         class="tiptext">Maximum pen velocity. Higher = faster coverage, less detail.</span></span></div>
-            <div class="dev-row"><label>Steps/Frame</label><input type="range" id="p-stepsPerFrame" min="1" max="40"
-                    step="1" value="12"><span class="dev-val" id="v-stepsPerFrame">12</span><span class="tip">?<span
+            <div class="dev-row"><label>Steps/Frame</label><input type="range" id="p-stepsPerFrame" min="1" max="80"
+                    step="1" value="25"><span class="dev-val" id="v-stepsPerFrame">25</span><span class="tip">?<span
                         class="tiptext">How many pen steps per animation frame. Higher = faster drawing.</span></span>
             </div>
             <div class="dev-row"><label>Wander Rate</label><input type="range" id="p-wanderRate" min="0.01" max="1.5"
@@ -602,7 +602,7 @@
         //  PEN CONFIG — all driven from dev panel
         // ============================================
         const pen = {
-            maxSpeed: 3, stepsPerFrame: 12,
+            maxSpeed: 3, stepsPerFrame: 25,
             wanderRate: 0.4, wanderForce: 0.02,
             errorPull: 0.08, searchRadius: 40, searchStep: 4,
             flowStrength: 0.04,
@@ -646,7 +646,7 @@
             let cx = 0, cy = 0;
             ovalIndices.forEach(idx => { cx += landmarks[idx].x * w; cy += landmarks[idx].y * h; });
             cx /= ovalIndices.length; cy /= ovalIndices.length;
-            const padding = 1.2; // Slightly larger than before
+            const padding = 1.3; // Large to ensure no clipping
             mCtx.fillStyle = '#fff'; mCtx.beginPath();
             ovalIndices.forEach((idx, i) => {
                 let px = cx + (landmarks[idx].x * w - cx) * padding;
@@ -658,7 +658,7 @@
             // Step 2: Gaussian blur the mask for soft feathering
             const blurCanvas = document.createElement('canvas'); blurCanvas.width = w; blurCanvas.height = h;
             const bCtx = blurCanvas.getContext('2d');
-            bCtx.filter = 'blur(45px)'; // ~45px feather radius
+            bCtx.filter = 'blur(80px)'; // Wide feather for invisible boundary
             bCtx.drawImage(mc, 0, 0);
 
             // Step 3: Read blurred values as float weights
@@ -667,7 +667,7 @@
             for (let i = 0; i < blurData.length; i += 4) {
                 faceWeight[i / 4] = blurData[i] / 255.0; // 0.0 to 1.0 smooth gradient
             }
-            console.log('Soft face mask built with 45px feather.');
+            console.log('Soft face mask built with 80px feather.');
         }
 
         // ============================================
@@ -775,8 +775,37 @@
                 let darkness = 1.0 - (lum / 255.0);
                 // Soft blend: inside face = full darkness, outside = fades smoothly
                 const fw = faceWeight ? faceWeight[i] : 1.0;
-                darkness *= (0.12 + fw * 0.88); // Smooth: center=100%, far outside=12%
+                darkness *= (0.25 + fw * 0.75); // Smooth: center=100%, far outside=25%
                 darknessMap[i] = darkness;
+            }
+
+            // Second pass: Gaussian-smooth the darkness map to eliminate any residual transitions
+            // Use a fast box blur approximation (2 passes of horizontal+vertical)
+            const tempMap = new Float32Array(n);
+            const blurR = 8; // 8px blur radius
+            for (let pass = 0; pass < 2; pass++) {
+                // Horizontal
+                for (let y = 0; y < h; y++) {
+                    for (let x = 0; x < w; x++) {
+                        let sum = 0, cnt = 0;
+                        for (let dx = -blurR; dx <= blurR; dx++) {
+                            const nx = x + dx;
+                            if (nx >= 0 && nx < w) { sum += darknessMap[y * w + nx]; cnt++; }
+                        }
+                        tempMap[y * w + x] = sum / cnt;
+                    }
+                }
+                // Vertical
+                for (let x = 0; x < w; x++) {
+                    for (let y = 0; y < h; y++) {
+                        let sum = 0, cnt = 0;
+                        for (let dy = -blurR; dy <= blurR; dy++) {
+                            const ny = y + dy;
+                            if (ny >= 0 && ny < h) { sum += tempMap[ny * w + x]; cnt++; }
+                        }
+                        darknessMap[y * w + x] = sum / cnt;
+                    }
+                }
             }
 
             // 2) FLOW FIELD from Sobel gradient (rotated 90° = along contours)
@@ -803,12 +832,48 @@
             errorMap = new Float32Array(n);
             for (let i = 0; i < n; i++) errorMap[i] = darknessMap[i];
 
+            // 4) BUILD GRID for dynamic region completion (8x8)
+            gridCols = 8; gridRows = 8;
+            gridCellW = Math.ceil(w / gridCols);
+            gridCellH = Math.ceil(h / gridRows);
+            gridError = new Float32Array(gridCols * gridRows);
+            updateGridError();
+
             // Also store edge data for display
             const ed = editCtx.getImageData(0, 0, w, h).data;
             edgeDataArray = new Uint8Array(n);
             for (let i = 0; i < ed.length; i += 4) edgeDataArray[i / 4] = ed[i] > 60 ? 1 : 0;
 
-            console.log(`Maps built: ${w}x${h}, ${n} pixels`);
+            console.log(`Maps built: ${w}x${h}, ${n} pixels, grid ${gridCols}x${gridRows}`);
+        }
+
+        // === GRID-BASED DYNAMIC COMPLETION ===
+        let gridCols = 8, gridRows = 8, gridCellW, gridCellH;
+        let gridError = null;
+        let targetGridCell = -1; // index of cell with highest error
+
+        function updateGridError() {
+            if (!errorMap || !gridError) return;
+            gridError.fill(0);
+            const cellCounts = new Float32Array(gridCols * gridRows);
+            for (let y = 0; y < h; y++) {
+                const gy = Math.min(Math.floor(y / gridCellH), gridRows - 1);
+                for (let x = 0; x < w; x++) {
+                    const gx = Math.min(Math.floor(x / gridCellW), gridCols - 1);
+                    const gi = gy * gridCols + gx;
+                    gridError[gi] += errorMap[y * w + x];
+                    cellCounts[gi]++;
+                }
+            }
+            // Normalize to average error per cell
+            for (let i = 0; i < gridError.length; i++) {
+                if (cellCounts[i] > 0) gridError[i] /= cellCounts[i];
+            }
+            // Find highest error cell
+            let maxErr = 0; targetGridCell = 0;
+            for (let i = 0; i < gridError.length; i++) {
+                if (gridError[i] > maxErr) { maxErr = gridError[i]; targetGridCell = i; }
+            }
         }
 
         // ============================================
@@ -829,6 +894,7 @@
                 this.lx = this.x; this.ly = this.y;
                 this.wanderAngle = Math.random() * Math.PI * 2;
                 this.totalSteps = 0;
+                this.smoothDarkness = 0; // EMA-smoothed darkness for gradual line width
             }
 
             update() {
@@ -838,6 +904,9 @@
                 const pixIdx = iy * w + ix;
                 const localDarkness = (ix >= 0 && ix < w && iy >= 0 && iy < h) ? darknessMap[pixIdx] : 0;
                 const localError = (ix >= 0 && ix < w && iy >= 0 && iy < h) ? errorMap[pixIdx] : 0;
+
+                // === EMA smooth darkness for line width transitions ===
+                this.smoothDarkness = this.smoothDarkness * 0.92 + localDarkness * 0.08;
 
                 // === FORCE 1: ERROR ATTRACTION ===
                 // Sample nearby pixels, find direction of highest cumulative error
@@ -899,6 +968,19 @@
                 if (this.y < m) steerY += bp * (1 - this.y / m);
                 if (this.y > h - m) steerY -= bp * (1 - (h - this.y) / m);
 
+                // === FORCE 7: GRID COMPLETION BIAS ===
+                // Every 400 steps, recalculate which grid cell needs the most work
+                if (this.totalSteps % 400 === 0) updateGridError();
+                if (targetGridCell >= 0 && gridError && gridError[targetGridCell] > 0.03) {
+                    const tgx = (targetGridCell % gridCols) * gridCellW + gridCellW / 2;
+                    const tgy = Math.floor(targetGridCell / gridCols) * gridCellH + gridCellH / 2;
+                    const dx = tgx - this.x, dy = tgy - this.y;
+                    const dm = Math.sqrt(dx * dx + dy * dy) || 1;
+                    // Gentle bias — don't override other forces, just nudge
+                    steerX += (dx / dm) * 0.008;
+                    steerY += (dy / dm) * 0.008;
+                }
+
                 // Apply forces
                 this.vx += steerX; this.vy += steerY;
 
@@ -936,13 +1018,12 @@
             }
 
             draw() {
-                const ix = Math.floor(this.x), iy = Math.floor(this.y);
-                const pixIdx = iy * w + ix;
-                const darkness = (ix >= 0 && ix < w && iy >= 0 && iy < h) ? darknessMap[pixIdx] : 0;
+                // Use EMA-smoothed darkness for gradual line width transitions
+                const d = this.smoothDarkness;
 
-                // Continuous line width and alpha based on local darkness
-                const lw = pen.lineWidthMin + darkness * (pen.lineWidthMax - pen.lineWidthMin);
-                const alpha = pen.alphaMin + darkness * (pen.alphaMax - pen.alphaMin);
+                // Continuous line width and alpha based on smoothed darkness
+                const lw = pen.lineWidthMin + d * (pen.lineWidthMax - pen.lineWidthMin);
+                const alpha = pen.alphaMin + d * (pen.alphaMax - pen.alphaMin);
 
                 simCtx.strokeStyle = `rgba(20, 15, 10, ${alpha})`;
                 simCtx.lineWidth = lw;
@@ -975,11 +1056,11 @@
         //  AUTOMATION TIMELINE (keyframe interpolation)
         // ============================================
         const autoKeyframes = [
-            { t: 0.00, label: 'Ghost', maxSpeed: 6, stepsPerFrame: 15, wanderRate: 0.3, wanderForce: 0.018, errorPull: 0.04, searchRadius: 60, searchStep: 5, flowStrength: 0.03, dwellFactor: 0.3, repulsion: 0.01, lineWidthMin: 0.15, lineWidthMax: 0.4, alphaMin: 0.02, alphaMax: 0.08, borderMargin: 25, borderPush: 0.04, decayRadius: 6, decayAmount: 0.012 },
-            { t: 0.15, label: 'Structure', maxSpeed: 4, stepsPerFrame: 15, wanderRate: 0.35, wanderForce: 0.02, errorPull: 0.06, searchRadius: 50, searchStep: 4, flowStrength: 0.04, dwellFactor: 0.6, repulsion: 0.015, lineWidthMin: 0.15, lineWidthMax: 0.6, alphaMin: 0.02, alphaMax: 0.2, borderMargin: 25, borderPush: 0.04, decayRadius: 5, decayAmount: 0.010 },
-            { t: 0.45, label: 'Detail', maxSpeed: 2.5, stepsPerFrame: 12, wanderRate: 0.4, wanderForce: 0.02, errorPull: 0.10, searchRadius: 35, searchStep: 4, flowStrength: 0.05, dwellFactor: 1.2, repulsion: 0.02, lineWidthMin: 0.2, lineWidthMax: 1.2, alphaMin: 0.03, alphaMax: 0.5, borderMargin: 25, borderPush: 0.04, decayRadius: 5, decayAmount: 0.007 },
-            { t: 0.80, label: 'Refine', maxSpeed: 1.5, stepsPerFrame: 8, wanderRate: 0.5, wanderForce: 0.025, errorPull: 0.12, searchRadius: 20, searchStep: 3, flowStrength: 0.05, dwellFactor: 2.0, repulsion: 0.025, lineWidthMin: 0.2, lineWidthMax: 1.8, alphaMin: 0.03, alphaMax: 0.7, borderMargin: 25, borderPush: 0.04, decayRadius: 4, decayAmount: 0.004 },
-            { t: 1.00, label: 'Complete', maxSpeed: 1.5, stepsPerFrame: 8, wanderRate: 0.5, wanderForce: 0.025, errorPull: 0.12, searchRadius: 20, searchStep: 3, flowStrength: 0.05, dwellFactor: 2.0, repulsion: 0.025, lineWidthMin: 0.2, lineWidthMax: 1.8, alphaMin: 0.03, alphaMax: 0.7, borderMargin: 25, borderPush: 0.04, decayRadius: 4, decayAmount: 0.004 }
+            { t: 0.00, label: 'Ghost', maxSpeed: 7, stepsPerFrame: 25, wanderRate: 0.3, wanderForce: 0.02, errorPull: 0.05, searchRadius: 60, searchStep: 5, flowStrength: 0.03, dwellFactor: 0.3, repulsion: 0.01, lineWidthMin: 0.3, lineWidthMax: 0.8, alphaMin: 0.05, alphaMax: 0.2, borderMargin: 25, borderPush: 0.04, decayRadius: 6, decayAmount: 0.012 },
+            { t: 0.15, label: 'Structure', maxSpeed: 5, stepsPerFrame: 25, wanderRate: 0.35, wanderForce: 0.02, errorPull: 0.07, searchRadius: 50, searchStep: 4, flowStrength: 0.04, dwellFactor: 0.6, repulsion: 0.015, lineWidthMin: 0.25, lineWidthMax: 0.9, alphaMin: 0.04, alphaMax: 0.3, borderMargin: 25, borderPush: 0.04, decayRadius: 5, decayAmount: 0.010 },
+            { t: 0.45, label: 'Detail', maxSpeed: 3, stepsPerFrame: 20, wanderRate: 0.4, wanderForce: 0.022, errorPull: 0.10, searchRadius: 35, searchStep: 4, flowStrength: 0.05, dwellFactor: 1.2, repulsion: 0.02, lineWidthMin: 0.2, lineWidthMax: 1.3, alphaMin: 0.04, alphaMax: 0.5, borderMargin: 25, borderPush: 0.04, decayRadius: 5, decayAmount: 0.007 },
+            { t: 0.80, label: 'Refine', maxSpeed: 2, stepsPerFrame: 15, wanderRate: 0.5, wanderForce: 0.025, errorPull: 0.12, searchRadius: 20, searchStep: 3, flowStrength: 0.05, dwellFactor: 2.0, repulsion: 0.025, lineWidthMin: 0.2, lineWidthMax: 1.8, alphaMin: 0.04, alphaMax: 0.7, borderMargin: 25, borderPush: 0.04, decayRadius: 4, decayAmount: 0.004 },
+            { t: 1.00, label: 'Complete', maxSpeed: 2, stepsPerFrame: 15, wanderRate: 0.5, wanderForce: 0.025, errorPull: 0.12, searchRadius: 20, searchStep: 3, flowStrength: 0.05, dwellFactor: 2.0, repulsion: 0.025, lineWidthMin: 0.2, lineWidthMax: 1.8, alphaMin: 0.04, alphaMax: 0.7, borderMargin: 25, borderPush: 0.04, decayRadius: 4, decayAmount: 0.004 }
         ];
 
         function lerpKeys(a, b, t) {
