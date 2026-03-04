@@ -4,8 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Zen Swarm Studio</title>
-    <!-- MediaPipe Face Mesh -->
+    <title>Chaotic Pen Studio</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"
         crossorigin="anonymous"></script>
@@ -15,7 +14,7 @@
     <style>
         :root {
             --bg: #050505;
-            --panel: rgba(15, 15, 18, 0.9);
+            --panel: rgba(15, 15, 18, 0.92);
             --text: #e0e0e0;
             --dim: #777;
             --accent: #fff;
@@ -47,7 +46,7 @@
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            transition: opacity 0.5s ease;
+            transition: opacity 0.5s;
             opacity: 0;
             pointer-events: none;
             z-index: 10;
@@ -64,7 +63,7 @@
             top: 0;
             left: 0;
             right: 0;
-            padding: 1.5rem 2rem;
+            padding: 1.2rem 2rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -80,29 +79,29 @@
             font-weight: 300;
             letter-spacing: 0.3em;
             text-transform: uppercase;
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             color: var(--dim);
         }
 
         .phase-indicator {
-            font-size: 0.75rem;
-            letter-spacing: 0.2em;
+            font-size: 0.7rem;
+            letter-spacing: 0.15em;
             text-transform: uppercase;
             color: var(--accent);
         }
 
         .floating-panel {
             position: absolute;
-            bottom: 2rem;
+            bottom: 1.5rem;
             left: 50%;
             transform: translateX(-50%);
             background: var(--panel);
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.08);
-            padding: 1rem 2rem;
+            padding: 0.8rem 1.5rem;
             border-radius: 50px;
             display: flex;
-            gap: 1.5rem;
+            gap: 1.2rem;
             align-items: center;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
             flex-wrap: wrap;
@@ -110,22 +109,26 @@
             max-width: 95vw;
         }
 
+        .floating-panel.collapsed {
+            display: none !important;
+        }
+
         .control-group {
             display: flex;
             flex-direction: column;
-            gap: 0.4rem;
+            gap: 0.3rem;
         }
 
         .control-group label {
-            font-size: 0.6rem;
+            font-size: 0.55rem;
             text-transform: uppercase;
-            letter-spacing: 0.1em;
+            letter-spacing: 0.08em;
             color: var(--dim);
         }
 
         input[type="range"] {
             -webkit-appearance: none;
-            width: 100px;
+            width: 90px;
             height: 2px;
             background: #333;
             border-radius: 1px;
@@ -144,11 +147,11 @@
             background: transparent;
             border: 1px solid #444;
             color: var(--text);
-            padding: 0.6rem 1.2rem;
+            padding: 0.5rem 1rem;
             border-radius: 25px;
-            font-size: 0.7rem;
+            font-size: 0.65rem;
             text-transform: uppercase;
-            letter-spacing: 0.1em;
+            letter-spacing: 0.08em;
             cursor: pointer;
             transition: all 0.2s;
         }
@@ -167,13 +170,6 @@
 
         .btn-primary:hover {
             background: #e0e0e0;
-            transform: translateY(-1px);
-        }
-
-        .btn.active-toggle {
-            border-color: #f0c040;
-            color: #f0c040;
-            background: rgba(240, 192, 64, 0.1);
         }
 
         .canvas-wrapper {
@@ -188,13 +184,17 @@
         canvas {
             max-width: 90vw;
             max-height: 80vh;
-            box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
-            background: #000;
+            box-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
             border-radius: 4px;
         }
 
         #editCanvas {
             cursor: crosshair;
+            background: #000;
+        }
+
+        #simCanvas {
+            background: #f5f0eb;
         }
 
         .eraser-cursor {
@@ -226,66 +226,69 @@
             display: none;
         }
 
-        .sim-clock {
+        .sep {
+            width: 1px;
+            height: 24px;
+            background: #333;
+        }
+
+        /* Status bar (top center) */
+        .status-bar {
             position: absolute;
-            top: 1.5rem;
+            top: 1.2rem;
             left: 50%;
             transform: translateX(-50%);
             background: rgba(0, 0, 0, 0.6);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.08);
             backdrop-filter: blur(10px);
-            padding: 0.5rem 1.5rem;
+            padding: 0.4rem 1.2rem;
             border-radius: 30px;
             display: flex;
             align-items: center;
-            gap: 1.5rem;
+            gap: 1.2rem;
             pointer-events: none;
             z-index: 100;
-            font-size: 0.8rem;
+            font-size: 0.75rem;
         }
 
-        .sim-clock .clock {
+        .status-bar .clock {
             font-family: monospace;
-            font-size: 1.2rem;
+            font-size: 1rem;
             font-weight: bold;
             color: var(--accent);
         }
 
-        .sim-clock .phase {
+        .status-bar .phase {
             color: var(--dim);
             text-transform: uppercase;
             letter-spacing: 0.1em;
+            font-size: 0.65rem;
         }
 
-        .sep {
-            width: 1px;
-            height: 30px;
-            background: #333;
-            margin: 0 4px;
+        .status-bar .coverage {
+            color: #f0c040;
+            font-family: monospace;
+            font-size: 0.75rem;
         }
 
-        /* Bottom bar collapse */
-        .floating-panel.collapsed {
-            display: none !important;
-        }
-
+        /* Collapse toggle */
         .collapse-toggle {
             position: absolute;
-            bottom: 2rem;
-            right: 2rem;
+            bottom: 1.5rem;
+            right: 1.5rem;
             z-index: 110;
             background: var(--panel);
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.08);
             color: var(--dim);
-            width: 36px;
-            height: 36px;
+            width: 32px;
+            height: 32px;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            font-size: 1rem;
+            font-size: 0.9rem;
             transition: all 0.2s;
         }
 
@@ -297,16 +300,16 @@
         /* Right Dev Panel */
         .dev-panel {
             position: absolute;
-            top: 60px;
+            top: 50px;
             right: 0;
-            bottom: 80px;
-            width: 260px;
-            background: rgba(10, 10, 14, 0.92);
+            bottom: 70px;
+            width: 270px;
+            background: rgba(10, 10, 14, 0.94);
             backdrop-filter: blur(12px);
             border-left: 1px solid rgba(255, 255, 255, 0.06);
             z-index: 90;
             overflow-y: auto;
-            padding: 1rem 1rem 2rem;
+            padding: 0.8rem 1rem 2rem;
             display: none;
             scrollbar-width: thin;
             scrollbar-color: #333 transparent;
@@ -326,12 +329,12 @@
         }
 
         .dev-panel h3 {
-            font-size: 0.65rem;
+            font-size: 0.6rem;
             text-transform: uppercase;
-            letter-spacing: 0.15em;
+            letter-spacing: 0.12em;
             color: var(--accent);
-            margin: 1rem 0 0.5rem;
-            padding-bottom: 0.3rem;
+            margin: 0.8rem 0 0.4rem;
+            padding-bottom: 0.25rem;
             border-bottom: 1px solid rgba(255, 255, 255, 0.06);
         }
 
@@ -342,28 +345,74 @@
         .dev-row {
             display: flex;
             align-items: center;
-            justify-content: space-between;
-            margin-bottom: 0.6rem;
+            gap: 6px;
+            margin-bottom: 0.5rem;
         }
 
         .dev-row label {
-            font-size: 0.55rem;
+            font-size: 0.5rem;
             text-transform: uppercase;
-            letter-spacing: 0.08em;
+            letter-spacing: 0.06em;
             color: var(--dim);
             flex: 1;
+            min-width: 0;
         }
 
         .dev-row input[type="range"] {
-            width: 80px;
+            width: 75px;
         }
 
         .dev-row .dev-val {
             font-family: monospace;
-            font-size: 0.6rem;
+            font-size: 0.55rem;
             color: var(--accent);
-            width: 40px;
+            width: 36px;
             text-align: right;
+            flex-shrink: 0;
+        }
+
+        .dev-row .tip {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            border: 1px solid #444;
+            color: #555;
+            font-size: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: help;
+            flex-shrink: 0;
+            position: relative;
+        }
+
+        .dev-row .tip:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .dev-row .tip .tiptext {
+            display: none;
+            position: absolute;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: #1a1a1e;
+            border: 1px solid #333;
+            color: var(--text);
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 9px;
+            width: 160px;
+            line-height: 1.3;
+            text-transform: none;
+            letter-spacing: 0;
+            z-index: 200;
+            white-space: normal;
+        }
+
+        .dev-row .tip:hover .tiptext {
+            display: block;
         }
     </style>
 </head>
@@ -371,20 +420,21 @@
 <body>
 
     <div class="top-bar">
-        <div class="logo">Swarm Studio</div>
-        <div class="phase-indicator" id="phaseIndicator">Phase 1 / Upload</div>
-        <button class="btn" style="opacity: 0; pointer-events: none;" id="restartBtn">Restart</button>
+        <div class="logo">Chaotic Pen</div>
+        <div class="phase-indicator" id="phaseIndicator">Upload</div>
+        <button class="btn" style="opacity:0;pointer-events:none;" id="restartBtn">Restart</button>
     </div>
 
     <!-- VIEW 1: SPLASH -->
     <div class="view active" id="view-splash">
         <div class="splash-content">
-            <h1>Swarm Studio</h1>
-            <p style="font-size: 0.8rem; color: var(--dim); letter-spacing: 0.1em; max-width: 400px; line-height: 1.5;">
-                Upload a facial portrait. The system will detect the face, generate weighted edges, and deploy an
-                evolving swarm to trace it.
+            <h1>Chaotic Pen</h1>
+            <p style="font-size:0.8rem;color:var(--dim);letter-spacing:0.1em;max-width:400px;line-height:1.5;">
+                Upload a portrait. The system will detect the face, build a density map, and deploy a single chaotic pen
+                to sketch it — one continuous stroke.
             </p>
-            <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Load Image</button>
+            <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Load
+                Portrait</button>
         </div>
     </div>
 
@@ -395,114 +445,122 @@
             <div class="eraser-cursor" id="eraserCursor"></div>
         </div>
         <div class="floating-panel">
-            <div class="control-group">
-                <label>Edge Detail</label>
-                <input type="range" id="edgeThreshold" min="10" max="150" value="45">
-            </div>
-            <div class="control-group">
-                <label>Eraser Size</label>
-                <input type="range" id="eraserSize" min="5" max="100" value="30">
-            </div>
+            <div class="control-group"><label>Edge Detail</label><input type="range" id="edgeThreshold" min="10"
+                    max="150" value="45"></div>
+            <div class="control-group"><label>Eraser</label><input type="range" id="eraserSize" min="5" max="100"
+                    value="30"></div>
             <div class="sep"></div>
-            <button class="btn" id="resetEdgesBtn">Reset Edges</button>
-            <button class="btn btn-primary" id="startSwarmBtn">Deploy Swarm</button>
+            <button class="btn" id="resetEdgesBtn">Reset</button>
+            <button class="btn btn-primary" id="startPenBtn">Start Pen ▸</button>
         </div>
     </div>
 
-    <!-- VIEW 3: SWARM SIMULATION -->
+    <!-- VIEW 3: PEN SIMULATION -->
     <div class="view" id="view-sim">
         <div class="canvas-wrapper">
             <canvas id="simCanvas"></canvas>
         </div>
 
-        <div class="sim-clock" id="simClock">
+        <div class="status-bar" id="statusBar">
             <span class="clock" id="clockDisplay">00:00</span>
-            <span class="phase" id="phaseDisplay">Ready</span>
+            <span class="phase" id="phaseDisplay">Outline</span>
+            <span class="coverage" id="coverageDisplay">0%</span>
         </div>
 
-        <div class="floating-panel">
-            <!-- Mode Buttons -->
-            <button class="btn active-toggle" id="modeSwarmBtn">Swarm</button>
-            <button class="btn" id="modePenBtn">Single Pen</button>
-            <button class="btn" id="modeFlowBtn">Edge Flow</button>
+        <div class="floating-panel" id="bottomBar">
+            <button class="btn" id="pauseBtn">Pause</button>
+            <button class="btn" id="wipeBtn">Wipe</button>
+            <button class="btn" id="toggleErrorBtn">Show Error Map</button>
             <div class="sep"></div>
-            <!-- Controls -->
-            <div class="control-group">
-                <label>Density</label>
-                <input type="range" id="simAgents" min="100" max="5500" value="600">
-            </div>
-            <div class="control-group">
-                <label>Smoothness</label>
-                <input type="range" id="simSmoothness" min="1" max="10" value="8">
-            </div>
-            <div class="control-group" style="flex-direction: row; align-items: center; gap: 10px;">
-                <label>Void</label>
-                <input type="checkbox" id="simVoidToggle" checked style="accent-color: var(--accent);">
-            </div>
-            <div class="control-group" style="flex-direction: row; align-items: center; gap: 10px;">
-                <label>Mono</label>
-                <input type="checkbox" id="monochromeToggle" style="accent-color: var(--accent);">
-            </div>
-            <div class="sep"></div>
-            <button class="btn" id="evolveBtn">1-Min Evolve</button>
-            <button class="btn" id="clearSimBtn">Wipe</button>
-            <button class="btn btn-primary" id="exportBtn">Export</button>
+            <button class="btn btn-primary" id="exportBtn">Export PNG</button>
         </div>
-        <button class="collapse-toggle" id="collapseBtn" title="Toggle bottom bar">▼</button>
+        <button class="collapse-toggle" id="collapseBtn" title="Toggle bar">▼</button>
 
-        <!-- PEN DEV PANEL (right side) -->
-        <div class="dev-panel" id="penDevPanel">
+        <!-- DEV PANEL -->
+        <div class="dev-panel visible" id="devPanel">
             <h3>⚡ Speed & Motion</h3>
-            <div class="dev-row"><label>Max Speed</label><input type="range" id="pen-maxSpeed" min="0.5" max="20"
-                    step="0.5" value="10"><span class="dev-val" id="pv-maxSpeed">10</span></div>
-            <div class="dev-row"><label>Steps/Frame</label><input type="range" id="pen-stepsPerFrame" min="1" max="30"
-                    step="1" value="8"><span class="dev-val" id="pv-stepsPerFrame">8</span></div>
-            <div class="dev-row"><label>Wander Rate</label><input type="range" id="pen-wanderRate" min="0.01" max="1.0"
-                    step="0.01" value="0.30"><span class="dev-val" id="pv-wanderRate">0.30</span></div>
-            <div class="dev-row"><label>Wander Force</label><input type="range" id="pen-wanderForce" min="0.001"
-                    max="0.1" step="0.001" value="0.015"><span class="dev-val" id="pv-wanderForce">0.015</span></div>
+            <div class="dev-row"><label>Max Speed</label><input type="range" id="p-maxSpeed" min="0.5" max="25"
+                    step="0.5" value="3"><span class="dev-val" id="v-maxSpeed">3</span><span class="tip">?<span
+                        class="tiptext">Maximum pen velocity. Higher = faster coverage, less detail.</span></span></div>
+            <div class="dev-row"><label>Steps/Frame</label><input type="range" id="p-stepsPerFrame" min="1" max="40"
+                    step="1" value="12"><span class="dev-val" id="v-stepsPerFrame">12</span><span class="tip">?<span
+                        class="tiptext">How many pen steps per animation frame. Higher = faster drawing.</span></span>
+            </div>
+            <div class="dev-row"><label>Wander Rate</label><input type="range" id="p-wanderRate" min="0.01" max="1.5"
+                    step="0.01" value="0.4"><span class="dev-val" id="v-wanderRate">0.4</span><span class="tip">?<span
+                        class="tiptext">How chaotically the pen direction changes. Higher = more scribble.</span></span>
+            </div>
+            <div class="dev-row"><label>Wander Force</label><input type="range" id="p-wanderForce" min="0.001"
+                    max="0.15" step="0.001" value="0.02"><span class="dev-val" id="v-wanderForce">0.02</span><span
+                    class="tip">?<span class="tiptext">Strength of the random drift force applied to the
+                        pen.</span></span></div>
 
-            <h3>🧲 Magnetism</h3>
-            <div class="dev-row"><label>Pull Force</label><input type="range" id="pen-magnetPull" min="0.005" max="0.2"
-                    step="0.005" value="0.04"><span class="dev-val" id="pv-magnetPull">0.04</span></div>
-            <div class="dev-row"><label>Strength Min</label><input type="range" id="pen-magnetStrMin" min="0.05"
-                    max="1.0" step="0.05" value="0.50"><span class="dev-val" id="pv-magnetStrMin">0.50</span></div>
-            <div class="dev-row"><label>Strength Range</label><input type="range" id="pen-magnetStrRange" min="0.0"
-                    max="1.0" step="0.05" value="0.50"><span class="dev-val" id="pv-magnetStrRange">0.50</span></div>
-            <div class="dev-row"><label>ON Duration Min</label><input type="range" id="pen-magnetOnMin" min="10"
-                    max="500" step="10" value="100"><span class="dev-val" id="pv-magnetOnMin">100</span></div>
-            <div class="dev-row"><label>ON Duration Range</label><input type="range" id="pen-magnetOnRange" min="0"
-                    max="1000" step="10" value="600"><span class="dev-val" id="pv-magnetOnRange">600</span></div>
-            <div class="dev-row"><label>OFF Cool Min</label><input type="range" id="pen-magnetOffMin" min="5" max="200"
-                    step="5" value="40"><span class="dev-val" id="pv-magnetOffMin">40</span></div>
-            <div class="dev-row"><label>OFF Cool Range</label><input type="range" id="pen-magnetOffRange" min="0"
-                    max="300" step="5" value="10"><span class="dev-val" id="pv-magnetOffRange">10</span></div>
+            <h3>🧲 Error Attraction</h3>
+            <div class="dev-row"><label>Pull Strength</label><input type="range" id="p-errorPull" min="0.005" max="0.3"
+                    step="0.005" value="0.08"><span class="dev-val" id="v-errorPull">0.08</span><span class="tip">?<span
+                        class="tiptext">How strongly the pen is pulled toward high-error (under-drawn)
+                        areas.</span></span></div>
+            <div class="dev-row"><label>Search Radius</label><input type="range" id="p-searchRadius" min="5" max="100"
+                    step="1" value="40"><span class="dev-val" id="v-searchRadius">40</span><span class="tip">?<span
+                        class="tiptext">How far the pen looks to find under-drawn areas. Larger = smoother
+                        paths.</span></span></div>
+            <div class="dev-row"><label>Search Step</label><input type="range" id="p-searchStep" min="1" max="10"
+                    step="1" value="4"><span class="dev-val" id="v-searchStep">4</span><span class="tip">?<span
+                        class="tiptext">Pixel step size when scanning for error. Lower = more accurate,
+                        slower.</span></span></div>
 
-            <h3>🔍 Edge Detection</h3>
-            <div class="dev-row"><label>Search Radius (ON)</label><input type="range" id="pen-searchRadiusOn" min="5"
-                    max="80" step="1" value="35"><span class="dev-val" id="pv-searchRadiusOn">35</span></div>
-            <div class="dev-row"><label>Search Radius (OFF)</label><input type="range" id="pen-searchRadiusOff" min="2"
-                    max="40" step="1" value="10"><span class="dev-val" id="pv-searchRadiusOff">10</span></div>
-            <div class="dev-row"><label>Search Step</label><input type="range" id="pen-searchStep" min="1" max="8"
-                    step="1" value="4"><span class="dev-val" id="pv-searchStep">4</span></div>
-            <div class="dev-row"><label>Near Threshold</label><input type="range" id="pen-nearThreshold" min="1"
-                    max="10" step="1" value="2"><span class="dev-val" id="pv-nearThreshold">2</span></div>
-            <div class="dev-row"><label>Near Radius</label><input type="range" id="pen-nearRadius" min="1" max="8"
-                    step="1" value="3"><span class="dev-val" id="pv-nearRadius">3</span></div>
+            <h3>🌊 Flow Alignment</h3>
+            <div class="dev-row"><label>Flow Strength</label><input type="range" id="p-flowStrength" min="0" max="0.15"
+                    step="0.005" value="0.04"><span class="dev-val" id="v-flowStrength">0.04</span><span
+                    class="tip">?<span class="tiptext">How strongly the pen aligns to facial contour
+                        directions.</span></span></div>
+
+            <h3>🔄 Dwell Looping</h3>
+            <div class="dev-row"><label>Dwell Factor</label><input type="range" id="p-dwellFactor" min="0" max="3"
+                    step="0.1" value="1.2"><span class="dev-val" id="v-dwellFactor">1.2</span><span class="tip">?<span
+                        class="tiptext">In dark areas the pen's wander tightens into loops. Higher = tighter circles in
+                        shadows.</span></span></div>
+            <div class="dev-row"><label>Repulsion</label><input type="range" id="p-repulsion" min="0" max="0.1"
+                    step="0.005" value="0.02"><span class="dev-val" id="v-repulsion">0.02</span><span class="tip">?<span
+                        class="tiptext">Push pen away from already-saturated areas (error near zero).</span></span>
+            </div>
 
             <h3>✏️ Line Style</h3>
-            <div class="dev-row"><label>On-Edge Width</label><input type="range" id="pen-lineWidthOn" min="0.1" max="5"
-                    step="0.1" value="1.0"><span class="dev-val" id="pv-lineWidthOn">1.0</span></div>
-            <div class="dev-row"><label>Off-Edge Width</label><input type="range" id="pen-lineWidthOff" min="0.05"
-                    max="3" step="0.05" value="0.80"><span class="dev-val" id="pv-lineWidthOff">0.80</span></div>
-            <div class="dev-row"><label>On-Edge Alpha</label><input type="range" id="pen-alphaOn" min="0.05" max="1.0"
-                    step="0.05" value="0.90"><span class="dev-val" id="pv-alphaOn">0.90</span></div>
-            <div class="dev-row"><label>Off-Edge Alpha</label><input type="range" id="pen-alphaOff" min="0.005"
-                    max="0.3" step="0.005" value="0.010"><span class="dev-val" id="pv-alphaOff">0.010</span></div>
-            <div class="dev-row"><label>Border Margin</label><input type="range" id="pen-borderMargin" min="5" max="100"
-                    step="5" value="30"><span class="dev-val" id="pv-borderMargin">30</span></div>
-            <div class="dev-row"><label>Border Push</label><input type="range" id="pen-borderPush" min="0.005" max="0.1"
-                    step="0.005" value="0.030"><span class="dev-val" id="pv-borderPush">0.030</span></div>
+            <div class="dev-row"><label>Width Min</label><input type="range" id="p-lineWidthMin" min="0.05" max="1"
+                    step="0.05" value="0.2"><span class="dev-val" id="v-lineWidthMin">0.2</span><span class="tip">?<span
+                        class="tiptext">Line width in light areas.</span></span></div>
+            <div class="dev-row"><label>Width Max</label><input type="range" id="p-lineWidthMax" min="0.5" max="4"
+                    step="0.1" value="1.8"><span class="dev-val" id="v-lineWidthMax">1.8</span><span class="tip">?<span
+                        class="tiptext">Line width in dark areas.</span></span></div>
+            <div class="dev-row"><label>Alpha Min</label><input type="range" id="p-alphaMin" min="0.005" max="0.3"
+                    step="0.005" value="0.03"><span class="dev-val" id="v-alphaMin">0.03</span><span class="tip">?<span
+                        class="tiptext">Ink opacity in light areas.</span></span></div>
+            <div class="dev-row"><label>Alpha Max</label><input type="range" id="p-alphaMax" min="0.1" max="1"
+                    step="0.05" value="0.7"><span class="dev-val" id="v-alphaMax">0.7</span><span class="tip">?<span
+                        class="tiptext">Ink opacity in dark areas.</span></span></div>
+
+            <h3>🧱 Border</h3>
+            <div class="dev-row"><label>Margin</label><input type="range" id="p-borderMargin" min="5" max="80" step="5"
+                    value="25"><span class="dev-val" id="v-borderMargin">25</span><span class="tip">?<span
+                        class="tiptext">Distance from edge where border push activates.</span></span></div>
+            <div class="dev-row"><label>Push Force</label><input type="range" id="p-borderPush" min="0.005" max="0.15"
+                    step="0.005" value="0.04"><span class="dev-val" id="v-borderPush">0.04</span><span
+                    class="tip">?<span class="tiptext">How hard the pen is pushed away from canvas
+                        borders.</span></span></div>
+
+            <h3>⏱ Error Decay</h3>
+            <div class="dev-row"><label>Decay Radius</label><input type="range" id="p-decayRadius" min="1" max="15"
+                    step="1" value="5"><span class="dev-val" id="v-decayRadius">5</span><span class="tip">?<span
+                        class="tiptext">Radius around each drawn point where error is reduced.</span></span></div>
+            <div class="dev-row"><label>Decay Amount</label><input type="range" id="p-decayAmount" min="0.001"
+                    max="0.05" step="0.001" value="0.008"><span class="dev-val" id="v-decayAmount">0.008</span><span
+                    class="tip">?<span class="tiptext">How much error is reduced per stroke. Lower = pen revisits areas
+                        more.</span></span></div>
+
+            <h3>📊 Phases</h3>
+            <div class="dev-row"><label>Auto-Phase</label><input type="checkbox" id="p-autoPhase" checked
+                    style="accent-color:var(--accent);"><span class="tip">?<span class="tiptext">Automatically progress
+                        through Outline → Structure → Detail → Refine phases.</span></span></div>
         </div>
     </div>
 
@@ -510,7 +568,7 @@
 
     <script>
         // ============================================
-        //  CORE ELEMENTS & STATE
+        //  CORE ELEMENTS
         // ============================================
         const views = { splash: document.getElementById('view-splash'), edit: document.getElementById('view-edit'), sim: document.getElementById('view-sim') };
         const editCanvas = document.getElementById('editCanvas');
@@ -523,32 +581,32 @@
         let sourceImgData = null;
         let originalImg = null;
         let w, h;
-        let boids = [];
         let simulationRaf;
-        let edgeDataArray = null;
         let faceMask = null;
-        let isEvolving = false;
-        let evolveStart = 0;
+        let isPaused = false;
+        let simStartTime = 0;
 
-        // Current mode: 'swarm', 'pen', 'flow'
-        let currentMode = 'swarm';
+        // === 3 PRE-COMPUTED MAPS ===
+        let darknessMap = null;   // Float32Array: 0.0 (white) to 1.0 (black)
+        let flowFieldX = null;    // Float32Array: flow direction X component
+        let flowFieldY = null;    // Float32Array: flow direction Y component
+        let errorMap = null;      // Float32Array: remaining "ink needed" per pixel
+        let edgeDataArray = null; // Uint8Array: 1 = edge pixel (for edge editor display)
 
-        // Single Pen instance
-        let singlePen = null;
-
-        // Edge graph for flow mode
-        let graphNodes = [];
-
-        const config = {
-            eraserSize: 30,
-            edgeThreshold: 45,
-            agents: 600,
-            maxSpeed: 2.5,
-            maxForce: 0.1,
-            voidMode: true,
-            smoothness: 0.8,
-            monochrome: false,
-            negativeRatio: 0.0
+        // ============================================
+        //  PEN CONFIG — all driven from dev panel
+        // ============================================
+        const pen = {
+            maxSpeed: 3, stepsPerFrame: 12,
+            wanderRate: 0.4, wanderForce: 0.02,
+            errorPull: 0.08, searchRadius: 40, searchStep: 4,
+            flowStrength: 0.04,
+            dwellFactor: 1.2, repulsion: 0.02,
+            lineWidthMin: 0.2, lineWidthMax: 1.8,
+            alphaMin: 0.03, alphaMax: 0.7,
+            borderMargin: 25, borderPush: 0.04,
+            decayRadius: 5, decayAmount: 0.008,
+            autoPhase: true
         };
 
         // ============================================
@@ -562,9 +620,9 @@
             if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
                 storedLandmarks = results.multiFaceLandmarks[0];
                 buildFaceMask(storedLandmarks);
-                console.log("Face mesh detected. Rebuilding weighted edges...");
+                console.log("Face detected.");
             } else {
-                console.warn("No face detected. Using full image for edges.");
+                console.warn("No face detected. Using full image.");
                 faceMask = new Uint8Array(w * h).fill(1);
             }
             generateEdges();
@@ -585,8 +643,7 @@
             ovalIndices.forEach(idx => { cx += landmarks[idx].x * w; cy += landmarks[idx].y * h; });
             cx /= ovalIndices.length; cy /= ovalIndices.length;
             const padding = 1.15;
-            mCtx.fillStyle = '#fff';
-            mCtx.beginPath();
+            mCtx.fillStyle = '#fff'; mCtx.beginPath();
             ovalIndices.forEach((idx, i) => {
                 let px = cx + (landmarks[idx].x * w - cx) * padding;
                 let py = cy + (landmarks[idx].y * h - cy) * padding;
@@ -600,12 +657,12 @@
         // ============================================
         //  NAVIGATION
         // ============================================
-        function setView(viewName) {
-            Object.values(views).forEach(v => v.classList.remove('active'));
-            views[viewName].classList.add('active');
-            if (viewName === 'splash') { phaseIndicator.innerText = "Phase 1 / Upload"; restartBtn.style.opacity = "0"; restartBtn.style.pointerEvents = "none"; cancelAnimationFrame(simulationRaf); isEvolving = false; }
-            else if (viewName === 'edit') { phaseIndicator.innerText = "Phase 2 / Isolate Edges"; restartBtn.style.opacity = "1"; restartBtn.style.pointerEvents = "auto"; }
-            else if (viewName === 'sim') { phaseIndicator.innerText = "Phase 3 / " + currentMode.toUpperCase(); }
+        function setView(v) {
+            Object.values(views).forEach(el => el.classList.remove('active'));
+            views[v].classList.add('active');
+            if (v === 'splash') { phaseIndicator.innerText = "Upload"; restartBtn.style.opacity = "0"; restartBtn.style.pointerEvents = "none"; cancelAnimationFrame(simulationRaf); }
+            else if (v === 'edit') { phaseIndicator.innerText = "Isolate Edges"; restartBtn.style.opacity = "1"; restartBtn.style.pointerEvents = "auto"; }
+            else if (v === 'sim') { phaseIndicator.innerText = "Drawing"; }
         }
         restartBtn.onclick = () => setView('splash');
 
@@ -613,15 +670,17 @@
         //  PHASE 1: UPLOAD
         // ============================================
         document.getElementById('fileInput').onchange = (e) => {
-            const file = e.target.files[0]; if (!file) return;
+            const f = e.target.files[0]; if (!f) return;
             const reader = new FileReader();
             reader.onload = (ev) => { originalImg = new Image(); originalImg.onload = () => initEditor(originalImg); originalImg.src = ev.target.result; };
-            reader.readAsDataURL(file);
+            reader.readAsDataURL(f);
         };
 
         // ============================================
         //  PHASE 2: EDGE EDITOR
         // ============================================
+        const config = { eraserSize: 30, edgeThreshold: 45 };
+
         function initEditor(img) {
             const maxW = window.innerWidth * 0.9, maxH = window.innerHeight * 0.8;
             const scale = Math.min(maxW / img.width, maxH / img.height);
@@ -653,10 +712,8 @@
                     const pi = idx * 4;
                     const inside = faceMask ? faceMask[idx] === 1 : true;
                     const thresh = inside ? config.edgeThreshold * 0.7 : config.edgeThreshold * 2.0;
-                    if (val > thresh) {
-                        const b = inside ? 255 : 120;
-                        edges[pi] = b; edges[pi + 1] = b; edges[pi + 2] = b; edges[pi + 3] = 255;
-                    } else { edges[pi] = 0; edges[pi + 1] = 0; edges[pi + 2] = 0; edges[pi + 3] = 255; }
+                    if (val > thresh) { const b = inside ? 255 : 120; edges[pi] = b; edges[pi + 1] = b; edges[pi + 2] = b; edges[pi + 3] = 255; }
+                    else { edges[pi] = 0; edges[pi + 1] = 0; edges[pi + 2] = 0; edges[pi + 3] = 255; }
                 }
             }
             editCtx.putImageData(new ImageData(edges, w, h), 0, 0);
@@ -674,285 +731,204 @@
         editCanvas.addEventListener('mouseup', () => isErasing = false);
         editCanvas.addEventListener('mouseleave', () => { isErasing = false; cursor.style.display = 'none'; });
         function erase(x, y, line = false) {
-            editCtx.fillStyle = '#000'; editCtx.strokeStyle = '#000'; editCtx.lineWidth = config.eraserSize * 2; editCtx.lineCap = 'round'; editCtx.lineJoin = 'round';
+            editCtx.fillStyle = '#000'; editCtx.strokeStyle = '#000'; editCtx.lineWidth = config.eraserSize * 2; editCtx.lineCap = 'round';
             if (line) { editCtx.beginPath(); editCtx.moveTo(elX, elY); editCtx.lineTo(x, y); editCtx.stroke(); }
             else { editCtx.beginPath(); editCtx.arc(x, y, config.eraserSize, 0, Math.PI * 2); editCtx.fill(); }
         }
 
         // ============================================
-        //  TRANSITION TO SIM
+        //  TRANSITION: BUILD 3 MAPS & START PEN
         // ============================================
-        document.getElementById('startSwarmBtn').onclick = () => {
-            const fd = editCtx.getImageData(0, 0, w, h).data;
-            edgeDataArray = new Uint8Array(w * h);
-            for (let i = 0; i < fd.length; i += 4) edgeDataArray[i / 4] = fd[i] > 60 ? 1 : 0;
-            // Build the edge graph for flow mode
-            buildEdgeGraph();
-            // Start in whatever mode is selected
-            startMode(currentMode);
+        document.getElementById('startPenBtn').onclick = () => {
+            buildMaps();
+            startPen();
             setView('sim');
         };
 
-        // ============================================
-        //  EDGE GRAPH CONSTRUCTION (for Flow Mode)
-        // ============================================
-        function buildEdgeGraph() {
-            graphNodes = [];
-            const gridSize = 25; // Sample every 25px
-            // Sample nodes from edge clusters
-            for (let gy = 0; gy < h; gy += gridSize) {
-                for (let gx = 0; gx < w; gx += gridSize) {
-                    // Count edge pixels in this grid cell
-                    let count = 0, sx = 0, sy = 0;
-                    for (let dy = 0; dy < gridSize && gy + dy < h; dy++) {
-                        for (let dx = 0; dx < gridSize && gx + dx < w; dx++) {
-                            if (edgeDataArray[(gy + dy) * w + (gx + dx)] === 1) {
-                                count++; sx += gx + dx; sy += gy + dy;
-                            }
-                        }
-                    }
-                    if (count > 3) { // Minimum density to be a node
-                        graphNodes.push({
-                            x: sx / count,
-                            y: sy / count,
-                            neighbors: [],
-                            density: count // Denser = more attractive
-                        });
-                    }
+        function buildMaps() {
+            const n = w * h;
+
+            // 1) DARKNESS MAP from grayscale of source image
+            darknessMap = new Float32Array(n);
+            for (let i = 0; i < n; i++) {
+                const pi = i * 4;
+                const lum = sourceImgData[pi] * 0.21 + sourceImgData[pi + 1] * 0.72 + sourceImgData[pi + 2] * 0.07;
+                darknessMap[i] = 1.0 - (lum / 255.0);
+                // Boost inside face mask
+                if (faceMask && faceMask[i] === 0) {
+                    darknessMap[i] *= 0.3; // Dim areas outside face
                 }
             }
-            // Connect nodes that are within range
-            const maxDist = gridSize * 2.5;
-            for (let i = 0; i < graphNodes.length; i++) {
-                for (let j = i + 1; j < graphNodes.length; j++) {
-                    const dx = graphNodes[i].x - graphNodes[j].x;
-                    const dy = graphNodes[i].y - graphNodes[j].y;
-                    if (Math.sqrt(dx * dx + dy * dy) < maxDist) {
-                        graphNodes[i].neighbors.push(j);
-                        graphNodes[j].neighbors.push(i);
-                    }
+
+            // 2) FLOW FIELD from Sobel gradient (rotated 90° = along contours)
+            flowFieldX = new Float32Array(n);
+            flowFieldY = new Float32Array(n);
+            // Compute luma for gradient
+            const luma = new Uint8Array(n);
+            for (let i = 0; i < sourceImgData.length; i += 4) {
+                luma[i / 4] = sourceImgData[i] * 0.21 + sourceImgData[i + 1] * 0.72 + sourceImgData[i + 2] * 0.07;
+            }
+            for (let y = 1; y < h - 1; y++) {
+                for (let x = 1; x < w - 1; x++) {
+                    const idx = y * w + x;
+                    const gx = -luma[(y - 1) * w + (x - 1)] + luma[(y - 1) * w + (x + 1)] - 2 * luma[y * w + (x - 1)] + 2 * luma[y * w + (x + 1)] - luma[(y + 1) * w + (x - 1)] + luma[(y + 1) * w + (x + 1)];
+                    const gy = -luma[(y - 1) * w + (x - 1)] - 2 * luma[(y - 1) * w + x] - luma[(y - 1) * w + (x + 1)] + luma[(y + 1) * w + (x - 1)] + 2 * luma[(y + 1) * w + x] + luma[(y + 1) * w + (x + 1)];
+                    // Rotate 90°: flow along contour (perpendicular to gradient)
+                    const mag = Math.sqrt(gx * gx + gy * gy) || 1;
+                    flowFieldX[idx] = -gy / mag; // perpendicular
+                    flowFieldY[idx] = gx / mag;
                 }
             }
-            console.log(`Edge graph: ${graphNodes.length} nodes built.`);
+
+            // 3) ERROR MAP = copy of darkness map (gets reduced as we draw)
+            errorMap = new Float32Array(n);
+            for (let i = 0; i < n; i++) errorMap[i] = darknessMap[i];
+
+            // Also store edge data for display
+            const ed = editCtx.getImageData(0, 0, w, h).data;
+            edgeDataArray = new Uint8Array(n);
+            for (let i = 0; i < ed.length; i += 4) edgeDataArray[i / 4] = ed[i] > 60 ? 1 : 0;
+
+            console.log(`Maps built: ${w}x${h}, ${n} pixels`);
         }
 
         // ============================================
-        //  MODE SWITCHING
+        //  THE CHAOTIC PEN
         // ============================================
-        function startMode(mode) {
-            currentMode = mode;
-            cancelAnimationFrame(simulationRaf);
-            isEvolving = false;
-
-            // Update UI mode buttons
-            document.getElementById('modeSwarmBtn').className = mode === 'swarm' ? 'btn active-toggle' : 'btn';
-            document.getElementById('modePenBtn').className = mode === 'pen' ? 'btn active-toggle' : 'btn';
-            document.getElementById('modeFlowBtn').className = mode === 'flow' ? 'btn active-toggle' : 'btn';
-
-            // Show/hide pen dev panel
-            const dp = document.getElementById('penDevPanel');
-            if (dp) { mode === 'pen' ? dp.classList.add('visible') : dp.classList.remove('visible'); }
-
-            if (mode === 'swarm') {
-                simCtx.fillStyle = '#000'; simCtx.fillRect(0, 0, w, h);
-                boids = [];
-                for (let i = 0; i < config.agents; i++) boids.push(new Boid());
-                animateSwarm();
-            } else if (mode === 'pen') {
-                simCtx.fillStyle = '#f5f0eb'; simCtx.fillRect(0, 0, w, h); // Warm white canvas
-                singlePen = new SinglePen();
-                animatePen();
-            } else if (mode === 'flow') {
-                simCtx.fillStyle = '#000'; simCtx.fillRect(0, 0, w, h);
-                boids = [];
-                for (let i = 0; i < config.agents; i++) boids.push(new FlowBoid());
-                animateFlow();
-            }
-            phaseIndicator.innerText = "Phase 3 / " + mode.toUpperCase();
-        }
-
-        // ============================================
-        //  MODE 1: SWARM (Original)
-        // ============================================
-        class Boid {
+        class ChaoticPen {
             constructor() {
-                this.x = Math.random() * w; this.y = Math.random() * h;
-                this.vx = (Math.random() - 0.5) * 4; this.vy = (Math.random() - 0.5) * 4;
-                this.lx = this.x; this.ly = this.y;
-                this.color = { r: 200, g: 200, b: 200 }; this.onEdge = false;
-            }
-            applyPhysics(allBoids) {
-                let sepX = 0, sepY = 0, aliX = 0, aliY = 0, cohX = 0, cohY = 0, total = 0;
-                const perception = 40;
-                for (let i = 0; i < allBoids.length; i++) {
-                    const o = allBoids[i]; if (o === this) continue;
-                    const dx = o.x - this.x; if (Math.abs(dx) > perception) continue;
-                    const dy = o.y - this.y; if (Math.abs(dy) > perception) continue;
-                    const d2 = dx * dx + dy * dy;
-                    if (d2 > 0 && d2 < perception * perception) {
-                        const d = Math.sqrt(d2);
-                        sepX -= (dx / d) * (perception / d); sepY -= (dy / d) * (perception / d);
-                        aliX += o.vx; aliY += o.vy; cohX += o.x; cohY += o.y; total++;
-                    }
-                }
-                let steerX = 0, steerY = 0;
-                if (total > 0) {
-                    aliX /= total; aliY /= total; cohX /= total; cohY /= total;
-                    steerX += sepX * 0.05; steerY += sepY * 0.05;
-                    steerX += (aliX - this.vx) * 0.05; steerY += (aliY - this.vy) * 0.05;
-                    steerX += (cohX - this.x) * 0.01; steerY += (cohY - this.y) * 0.01;
-                }
-                const ix = Math.floor(this.x), iy = Math.floor(this.y);
-                let foundEdge = false, bestDx = 0, bestDy = 0;
-                const r = 15;
-                for (let ox = -r; ox <= r; ox += 5) {
-                    for (let oy = -r; oy <= r; oy += 5) {
-                        const cx = ix + ox, cy = iy + oy;
-                        if (cx >= 0 && cx < w && cy >= 0 && cy < h && edgeDataArray[cy * w + cx] === 1) { foundEdge = true; bestDx += ox; bestDy += oy; }
-                    }
-                }
-                if (foundEdge) {
-                    this.onEdge = true;
-                    const dist = Math.sqrt(bestDx * bestDx + bestDy * bestDy) || 1;
-                    steerX += (bestDx / dist * config.maxSpeed - this.vx) * 0.15 * config.smoothness;
-                    steerY += (bestDy / dist * config.maxSpeed - this.vy) * 0.15 * config.smoothness;
-                    if (!config.monochrome) { const pI = (iy * w + ix) * 4; this.color = { r: sourceImgData[pI], g: sourceImgData[pI + 1], b: sourceImgData[pI + 2] }; }
-                    else { this.color = { r: 255, g: 255, b: 255 }; }
-                } else { this.onEdge = false; steerX += (Math.random() - 0.5) * 0.1; steerY += (Math.random() - 0.5) * 0.1; }
-                const sm = Math.sqrt(steerX * steerX + steerY * steerY);
-                if (sm > config.maxForce) { steerX = steerX / sm * config.maxForce; steerY = steerY / sm * config.maxForce; }
-                this.vx += steerX; this.vy += steerY;
-                const spd = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-                if (spd > config.maxSpeed) { this.vx = this.vx / spd * config.maxSpeed; this.vy = this.vy / spd * config.maxSpeed; }
-                this.lx = this.x; this.ly = this.y; this.x += this.vx; this.y += this.vy;
-                if (this.x < 0) { this.x = w; this.lx = w; } if (this.x > w) { this.x = 0; this.lx = 0; }
-                if (this.y < 0) { this.y = h; this.ly = h; } if (this.y > h) { this.y = 0; this.ly = 0; }
-            }
-            draw() {
-                let alpha = this.onEdge ? 0.8 : (config.voidMode ? 0 : 0.05);
-                if (alpha > 0) {
-                    simCtx.strokeStyle = `rgba(${this.color.r},${this.color.g},${this.color.b},${alpha})`;
-                    simCtx.lineWidth = this.onEdge ? 1 : 0.5;
-                    simCtx.beginPath(); simCtx.moveTo(this.lx, this.ly); simCtx.lineTo(this.x, this.y); simCtx.stroke();
-                }
-            }
-        }
-
-        function animateSwarm() {
-            simCtx.fillStyle = 'rgba(0,0,0,0.01)'; simCtx.fillRect(0, 0, w, h);
-            if (isEvolving) runEvolution();
-            for (let i = 0; i < boids.length; i++) { boids[i].applyPhysics(boids); boids[i].draw(); }
-            simulationRaf = requestAnimationFrame(animateSwarm);
-        }
-
-        // ============================================
-        //  MODE 2: SINGLE PEN (Continuous Line Art)
-        //  All params driven from penCfg (wired to dev panel)
-        // ============================================
-        const penCfg = {
-            maxSpeed: 10, stepsPerFrame: 8,
-            wanderRate: 0.30, wanderForce: 0.015,
-            magnetPull: 0.04, magnetStrMin: 0.50, magnetStrRange: 0.50,
-            magnetOnMin: 100, magnetOnRange: 600,
-            magnetOffMin: 40, magnetOffRange: 10,
-            searchRadiusOn: 35, searchRadiusOff: 10, searchStep: 4,
-            nearThreshold: 2, nearRadius: 3,
-            lineWidthOn: 1.0, lineWidthOff: 0.80,
-            alphaOn: 0.90, alphaOff: 0.010,
-            borderMargin: 30, borderPush: 0.030
-        };
-
-        class SinglePen {
-            constructor() {
+                // Start at center of face (or canvas center)
                 this.x = w / 2; this.y = h / 2;
-                this.vx = 1.5; this.vy = 0.5;
+                // Find the darkest area to start near
+                let bestIdx = 0, bestVal = 0;
+                for (let i = 0; i < darknessMap.length; i += 50) {
+                    if (darknessMap[i] > bestVal) { bestVal = darknessMap[i]; bestIdx = i; }
+                }
+                this.x = bestIdx % w; this.y = Math.floor(bestIdx / w);
+                this.vx = (Math.random() - 0.5) * 2;
+                this.vy = (Math.random() - 0.5) * 2;
                 this.lx = this.x; this.ly = this.y;
-                this.magnetismOn = false;
-                this.magnetTimer = 0;
-                this.frameCount = 0;
-                this.magnetStrength = 0;
-                this.wanderAngle = Math.random() * Math.PI * 3;
-                this.onEdge = false;
+                this.wanderAngle = Math.random() * Math.PI * 2;
+                this.totalSteps = 0;
             }
 
             update() {
-                this.frameCount++;
+                this.totalSteps++;
                 let steerX = 0, steerY = 0;
-
-                // --- Pulsing Magnetism ---
-                this.magnetTimer--;
-                if (this.magnetTimer <= 0) {
-                    this.magnetismOn = !this.magnetismOn;
-                    if (this.magnetismOn) {
-                        this.magnetTimer = penCfg.magnetOnMin + Math.random() * penCfg.magnetOnRange;
-                        this.magnetStrength = penCfg.magnetStrMin + Math.random() * penCfg.magnetStrRange;
-                    } else {
-                        this.magnetTimer = penCfg.magnetOffMin + Math.random() * penCfg.magnetOffRange;
-                    }
-                }
-
-                // --- Edge Seeking ---
                 const ix = Math.floor(this.x), iy = Math.floor(this.y);
-                let foundEdge = false, bestDx = 0, bestDy = 0;
-                this.onEdge = false;
-                const searchR = this.magnetismOn ? penCfg.searchRadiusOn : penCfg.searchRadiusOff;
-                const step = penCfg.searchStep;
-                for (let ox = -searchR; ox <= searchR; ox += step) {
-                    for (let oy = -searchR; oy <= searchR; oy += step) {
+                const pixIdx = iy * w + ix;
+                const localDarkness = (ix >= 0 && ix < w && iy >= 0 && iy < h) ? darknessMap[pixIdx] : 0;
+                const localError = (ix >= 0 && ix < w && iy >= 0 && iy < h) ? errorMap[pixIdx] : 0;
+
+                // === FORCE 1: ERROR ATTRACTION ===
+                // Sample nearby pixels, find direction of highest cumulative error
+                let errDx = 0, errDy = 0, errTotal = 0;
+                const sr = pen.searchRadius;
+                const ss = pen.searchStep;
+                for (let ox = -sr; ox <= sr; ox += ss) {
+                    for (let oy = -sr; oy <= sr; oy += ss) {
                         const cx = ix + ox, cy = iy + oy;
-                        if (cx >= 0 && cx < w && cy >= 0 && cy < h && edgeDataArray[cy * w + cx] === 1) {
-                            foundEdge = true; bestDx += ox; bestDy += oy;
+                        if (cx >= 0 && cx < w && cy >= 0 && cy < h) {
+                            const e = errorMap[cy * w + cx];
+                            if (e > 0.05) {
+                                const dist = Math.sqrt(ox * ox + oy * oy) || 1;
+                                // Weight by error and inverse distance
+                                const weight = e / dist;
+                                errDx += (ox / dist) * weight;
+                                errDy += (oy / dist) * weight;
+                                errTotal += weight;
+                            }
                         }
                     }
                 }
-                if (foundEdge) {
-                    let nearCount = 0;
-                    const nr = penCfg.nearRadius;
-                    for (let ox = -nr; ox <= nr; ox++) {
-                        for (let oy = -nr; oy <= nr; oy++) {
-                            const cx = ix + ox, cy = iy + oy;
-                            if (cx >= 0 && cx < w && cy >= 0 && cy < h && edgeDataArray[cy * w + cx] === 1) nearCount++;
-                        }
-                    }
-                    this.onEdge = nearCount > penCfg.nearThreshold;
-                    if (this.magnetismOn) {
-                        const dist = Math.sqrt(bestDx * bestDx + bestDy * bestDy) || 1;
-                        steerX += (bestDx / dist) * this.magnetStrength * penCfg.magnetPull;
-                        steerY += (bestDy / dist) * this.magnetStrength * penCfg.magnetPull;
-                    }
+                if (errTotal > 0) {
+                    const em = Math.sqrt(errDx * errDx + errDy * errDy) || 1;
+                    steerX += (errDx / em) * pen.errorPull;
+                    steerY += (errDy / em) * pen.errorPull;
                 }
 
-                // --- Wander ---
-                this.wanderAngle += (Math.random() - 0.5) * penCfg.wanderRate;
-                steerX += Math.cos(this.wanderAngle) * penCfg.wanderForce;
-                steerY += Math.sin(this.wanderAngle) * penCfg.wanderForce;
+                // === FORCE 2: FLOW ALIGNMENT ===
+                if (ix >= 0 && ix < w && iy >= 0 && iy < h && pen.flowStrength > 0) {
+                    const fx = flowFieldX[pixIdx];
+                    const fy = flowFieldY[pixIdx];
+                    // Align velocity with flow direction
+                    steerX += fx * pen.flowStrength * localDarkness;
+                    steerY += fy * pen.flowStrength * localDarkness;
+                }
 
-                // --- Border Avoidance ---
-                const m = penCfg.borderMargin;
-                const bp = penCfg.borderPush;
-                if (this.x < m) steerX += bp;
-                if (this.x > w - m) steerX -= bp;
-                if (this.y < m) steerY += bp;
-                if (this.y > h - m) steerY -= bp;
+                // === FORCE 3: DWELL LOOPING ===
+                // In dark areas, tighten the wander circle
+                // Higher darkness = more angular change per step = tighter loops
+                const dwellMod = 1.0 + localDarkness * pen.dwellFactor;
 
+                // === FORCE 4: REPULSION from saturated areas ===
+                if (localError < 0.02 && pen.repulsion > 0) {
+                    // Already drawn enough here — push away
+                    steerX += (Math.random() - 0.5) * pen.repulsion * 3;
+                    steerY += (Math.random() - 0.5) * pen.repulsion * 3;
+                }
+
+                // === FORCE 5: WANDER ===
+                this.wanderAngle += (Math.random() - 0.5) * pen.wanderRate * dwellMod;
+                steerX += Math.cos(this.wanderAngle) * pen.wanderForce;
+                steerY += Math.sin(this.wanderAngle) * pen.wanderForce;
+
+                // === FORCE 6: BORDER AVOIDANCE ===
+                const m = pen.borderMargin; const bp = pen.borderPush;
+                if (this.x < m) steerX += bp * (1 - this.x / m);
+                if (this.x > w - m) steerX -= bp * (1 - (w - this.x) / m);
+                if (this.y < m) steerY += bp * (1 - this.y / m);
+                if (this.y > h - m) steerY -= bp * (1 - (h - this.y) / m);
+
+                // Apply forces
                 this.vx += steerX; this.vy += steerY;
+
+                // Speed limit (modulated by local darkness — slower in dark areas for tighter detail)
+                const speedMod = 1.0 - localDarkness * 0.4; // dark = 60% speed
+                const maxSpd = pen.maxSpeed * Math.max(0.3, speedMod);
                 const spd = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-                if (spd > penCfg.maxSpeed) {
-                    this.vx = (this.vx / spd) * penCfg.maxSpeed;
-                    this.vy = (this.vy / spd) * penCfg.maxSpeed;
+                if (spd > maxSpd) {
+                    this.vx = (this.vx / spd) * maxSpd;
+                    this.vy = (this.vy / spd) * maxSpd;
                 }
+
                 this.lx = this.x; this.ly = this.y;
                 this.x += this.vx; this.y += this.vy;
-                this.x = Math.max(0, Math.min(w, this.x));
-                this.y = Math.max(0, Math.min(h, this.y));
+                this.x = Math.max(1, Math.min(w - 1, this.x));
+                this.y = Math.max(1, Math.min(h - 1, this.y));
+
+                // === DECAY ERROR MAP around where we drew ===
+                const dr = pen.decayRadius;
+                const da = pen.decayAmount;
+                const cx2 = Math.floor(this.x), cy2 = Math.floor(this.y);
+                for (let ox = -dr; ox <= dr; ox++) {
+                    for (let oy = -dr; oy <= dr; oy++) {
+                        const px = cx2 + ox, py = cy2 + oy;
+                        if (px >= 0 && px < w && py >= 0 && py < h) {
+                            const dist = Math.sqrt(ox * ox + oy * oy);
+                            if (dist <= dr) {
+                                const falloff = 1.0 - (dist / dr);
+                                const ei = py * w + px;
+                                errorMap[ei] = Math.max(0, errorMap[ei] - da * falloff);
+                            }
+                        }
+                    }
+                }
             }
 
             draw() {
-                const lw = this.onEdge ? penCfg.lineWidthOn : penCfg.lineWidthOff;
-                const alpha = this.onEdge ? penCfg.alphaOn : penCfg.alphaOff;
+                const ix = Math.floor(this.x), iy = Math.floor(this.y);
+                const pixIdx = iy * w + ix;
+                const darkness = (ix >= 0 && ix < w && iy >= 0 && iy < h) ? darknessMap[pixIdx] : 0;
+
+                // Continuous line width and alpha based on local darkness
+                const lw = pen.lineWidthMin + darkness * (pen.lineWidthMax - pen.lineWidthMin);
+                const alpha = pen.alphaMin + darkness * (pen.alphaMax - pen.alphaMin);
+
                 simCtx.strokeStyle = `rgba(20, 15, 10, ${alpha})`;
                 simCtx.lineWidth = lw;
                 simCtx.lineCap = 'round';
+                simCtx.lineJoin = 'round';
                 simCtx.beginPath();
                 simCtx.moveTo(this.lx, this.ly);
                 simCtx.lineTo(this.x, this.y);
@@ -960,252 +936,152 @@
             }
         }
 
+        // ============================================
+        //  SIMULATION LOOP
+        // ============================================
+        let activePen = null;
+        let showErrorOverlay = false;
+
+        function startPen() {
+            simCtx.fillStyle = '#f5f0eb'; // Warm paper
+            simCtx.fillRect(0, 0, w, h);
+            activePen = new ChaoticPen();
+            isPaused = false;
+            simStartTime = performance.now();
+            cancelAnimationFrame(simulationRaf);
+            animatePen();
+        }
+
         function animatePen() {
-            if (singlePen) {
-                for (let i = 0; i < penCfg.stepsPerFrame; i++) {
-                    singlePen.update(); singlePen.draw();
+            if (!isPaused && activePen) {
+                // Multi-phase progression
+                if (pen.autoPhase) {
+                    const elapsed = (performance.now() - simStartTime) / 1000;
+                    applyPhase(elapsed);
                 }
+
+                for (let i = 0; i < pen.stepsPerFrame; i++) {
+                    activePen.update();
+                    activePen.draw();
+                }
+
+                // Update status
+                updateStatus();
             }
             simulationRaf = requestAnimationFrame(animatePen);
         }
 
-        // ============================================
-        //  MODE 3: EDGE FLOW (Graph-Based Navigation)
-        // ============================================
-        class FlowBoid {
-            constructor() {
-                // Start at a random graph node
-                if (graphNodes.length > 0) {
-                    const startNode = graphNodes[Math.floor(Math.random() * graphNodes.length)];
-                    this.x = startNode.x + (Math.random() - 0.5) * 10;
-                    this.y = startNode.y + (Math.random() - 0.5) * 10;
-                } else {
-                    this.x = Math.random() * w; this.y = Math.random() * h;
-                }
-                this.vx = (Math.random() - 0.5) * 2;
-                this.vy = (Math.random() - 0.5) * 2;
-                this.lx = this.x; this.ly = this.y;
-                this.color = { r: 200, g: 200, b: 200 };
-                this.onEdge = false;
-
-                // Graph navigation
-                this.targetNodeIdx = this.findNearestNode();
-                this.nextNodeIdx = -1;
-                this.pickNextTarget();
-            }
-
-            findNearestNode() {
-                let best = 0, bestDist = Infinity;
-                for (let i = 0; i < graphNodes.length; i++) {
-                    const dx = graphNodes[i].x - this.x, dy = graphNodes[i].y - this.y;
-                    const d = dx * dx + dy * dy;
-                    if (d < bestDist) { bestDist = d; best = i; }
-                }
-                return best;
-            }
-
-            pickNextTarget() {
-                if (graphNodes.length === 0) return;
-                const node = graphNodes[this.targetNodeIdx];
-                if (node && node.neighbors.length > 0) {
-                    // Pick a random neighbor (weighted slightly by density)
-                    const candidates = node.neighbors;
-                    this.nextNodeIdx = candidates[Math.floor(Math.random() * candidates.length)];
-                } else {
-                    // No neighbors — jump to a random node
-                    this.nextNodeIdx = Math.floor(Math.random() * graphNodes.length);
-                }
-            }
-
-            update() {
-                if (graphNodes.length === 0) return;
-
-                const target = graphNodes[this.nextNodeIdx];
-                if (!target) return;
-
-                // Steer toward next graph node
-                const dx = target.x - this.x;
-                const dy = target.y - this.y;
-                const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-
-                // Strong but smooth pull toward the target node
-                let steerX = (dx / dist) * 0.06;
-                let steerY = (dy / dist) * 0.06;
-
-                // Also follow local edges while in transit
-                const ix = Math.floor(this.x), iy = Math.floor(this.y);
-                let edgeDx = 0, edgeDy = 0, edgeCount = 0;
-                for (let ox = -8; ox <= 8; ox += 4) {
-                    for (let oy = -8; oy <= 8; oy += 4) {
-                        const cx = ix + ox, cy = iy + oy;
-                        if (cx >= 0 && cx < w && cy >= 0 && cy < h && edgeDataArray[cy * w + cx] === 1) {
-                            edgeDx += ox; edgeDy += oy; edgeCount++;
-                        }
-                    }
-                }
-
-                this.onEdge = edgeCount > 1;
-                if (edgeCount > 0) {
-                    const edist = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy) || 1;
-                    steerX += (edgeDx / edist) * 0.03;
-                    steerY += (edgeDy / edist) * 0.03;
-                }
-
-                // Color sampling
-                if (!config.monochrome && this.onEdge) {
-                    const pI = (iy * w + ix) * 4;
-                    this.color = { r: sourceImgData[pI], g: sourceImgData[pI + 1], b: sourceImgData[pI + 2] };
-                } else if (config.monochrome) {
-                    this.color = { r: 255, g: 255, b: 255 };
-                }
-
-                // Limit steering
-                const sm = Math.sqrt(steerX * steerX + steerY * steerY);
-                if (sm > 0.08) { steerX = steerX / sm * 0.08; steerY = steerY / sm * 0.08; }
-
-                this.vx += steerX; this.vy += steerY;
-                const spd = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-                const maxSpd = 2.0;
-                if (spd > maxSpd) { this.vx = this.vx / spd * maxSpd; this.vy = this.vy / spd * maxSpd; }
-
-                this.lx = this.x; this.ly = this.y;
-                this.x += this.vx; this.y += this.vy;
-
-                // Arrival check — reached current target node?
-                if (dist < 10) {
-                    this.targetNodeIdx = this.nextNodeIdx;
-                    this.pickNextTarget();
-                }
-
-                // Wrap
-                if (this.x < 0) { this.x = w; this.lx = w; } if (this.x > w) { this.x = 0; this.lx = 0; }
-                if (this.y < 0) { this.y = h; this.ly = h; } if (this.y > h) { this.y = 0; this.ly = 0; }
-            }
-
-            draw() {
-                let alpha = this.onEdge ? 0.8 : (config.voidMode ? 0 : 0.04);
-                if (alpha > 0) {
-                    simCtx.strokeStyle = `rgba(${this.color.r},${this.color.g},${this.color.b},${alpha})`;
-                    simCtx.lineWidth = this.onEdge ? 1.2 : 0.3;
-                    simCtx.beginPath(); simCtx.moveTo(this.lx, this.ly); simCtx.lineTo(this.x, this.y); simCtx.stroke();
-                }
-            }
-        }
-
-        function animateFlow() {
-            simCtx.fillStyle = 'rgba(0,0,0,0.008)'; simCtx.fillRect(0, 0, w, h);
-            if (isEvolving) runEvolution();
-            for (let i = 0; i < boids.length; i++) { boids[i].update(); boids[i].draw(); }
-            simulationRaf = requestAnimationFrame(animateFlow);
-        }
-
-        // ============================================
-        //  EVOLUTION TIMELINE (shared)
-        // ============================================
-        function runEvolution() {
-            const elapsedSec = (performance.now() - evolveStart) / 1000;
-            const clockEl = document.getElementById('clockDisplay');
+        function applyPhase(sec) {
             const phaseEl = document.getElementById('phaseDisplay');
-            if (elapsedSec <= 60) {
-                clockEl.innerText = `${Math.floor(elapsedSec / 60).toString().padStart(2, '0')}:${Math.floor(elapsedSec % 60).toString().padStart(2, '0')}`;
+            // Total ~120 seconds for full drawing
+            if (sec < 20) {
+                // OUTLINE: fast, low detail, wide search, following edges
+                phaseEl.innerText = "Outline";
+                // Don't override user sliders continuously — just set once at phase boundary
+            } else if (sec < 60) {
+                phaseEl.innerText = "Structure";
+            } else if (sec < 100) {
+                phaseEl.innerText = "Detail";
+            } else {
+                phaseEl.innerText = "Refine";
             }
-            if (elapsedSec < 15) {
-                phaseEl.innerText = "Chaos"; config.smoothness = 0.2; config.maxForce = 0.05;
-                resizeFlock(100);
-            } else if (elapsedSec < 45) {
-                phaseEl.innerText = "Discovery";
-                const p = (elapsedSec - 15) / 30;
-                config.smoothness = 0.2 + p * 0.6; config.maxForce = 0.05 + p * 0.05;
-                resizeFlock(Math.floor(100 + p * 1900));
-            } else if (elapsedSec < 60) {
-                phaseEl.innerText = "Solidification"; config.smoothness = 1.0; config.maxForce = 0.1;
-                resizeFlock(2000);
-            } else { phaseEl.innerText = "Complete"; clockEl.innerText = "01:00"; isEvolving = false; }
         }
 
-        function resizeFlock(target) {
-            const BoidClass = currentMode === 'flow' ? FlowBoid : Boid;
-            while (boids.length < target) boids.push(new BoidClass());
-            if (boids.length > target) boids.length = target;
-            config.agents = target;
-            document.getElementById('simAgents').value = target;
-        }
+        function updateStatus() {
+            const elapsed = (performance.now() - simStartTime) / 1000;
+            const m = Math.floor(elapsed / 60).toString().padStart(2, '0');
+            const s = Math.floor(elapsed % 60).toString().padStart(2, '0');
+            document.getElementById('clockDisplay').innerText = `${m}:${s}`;
 
-        // ============================================
-        //  SIM UI CONTROLS
-        // ============================================
-        document.getElementById('simAgents').oninput = (e) => { config.agents = parseInt(e.target.value); if (currentMode !== 'pen') resizeFlock(config.agents); };
-        document.getElementById('simSmoothness').oninput = (e) => { config.smoothness = parseInt(e.target.value) / 10; };
-        document.getElementById('simVoidToggle').onchange = (e) => { config.voidMode = e.target.checked; };
-        document.getElementById('monochromeToggle').onchange = (e) => { config.monochrome = e.target.checked; };
-        document.getElementById('evolveBtn').onclick = () => { if (currentMode === 'pen') return; isEvolving = true; evolveStart = performance.now(); };
-        document.getElementById('clearSimBtn').onclick = () => { const bg = currentMode === 'pen' ? '#f5f0eb' : '#000'; simCtx.fillStyle = bg; simCtx.fillRect(0, 0, w, h); };
-        document.getElementById('exportBtn').onclick = () => { const l = document.createElement('a'); l.download = `swarm-${currentMode}-${Date.now()}.png`; l.href = simCanvas.toDataURL('image/png', 1.0); l.click(); };
-
-        // Mode switch buttons
-        document.getElementById('modeSwarmBtn').onclick = () => { if (edgeDataArray) startMode('swarm'); };
-        document.getElementById('modePenBtn').onclick = () => { if (edgeDataArray) startMode('pen'); };
-        document.getElementById('modeFlowBtn').onclick = () => { if (edgeDataArray) startMode('flow'); };
-
-        // ============================================
-        //  COLLAPSE TOGGLE (bottom bar)
-        // ============================================
-        const collapseBtn = document.getElementById('collapseBtn');
-        if (collapseBtn) {
-            collapseBtn.onclick = () => {
-                const panels = document.querySelectorAll('#view-sim .floating-panel');
-                panels.forEach(p => p.classList.toggle('collapsed'));
-                collapseBtn.innerText = panels[0]?.classList.contains('collapsed') ? '▲' : '▼';
-            };
+            // Coverage: percentage of error consumed
+            if (activePen && activePen.totalSteps % 200 === 0) {
+                let totalErr = 0, totalDark = 0;
+                for (let i = 0; i < errorMap.length; i += 10) {
+                    totalErr += errorMap[i];
+                    totalDark += darknessMap[i];
+                }
+                const coverage = totalDark > 0 ? Math.round((1 - totalErr / totalDark) * 100) : 0;
+                document.getElementById('coverageDisplay').innerText = `${coverage}%`;
+            }
         }
 
         // ============================================
-        //  PEN DEV PANEL WIRING
+        //  UI CONTROLS
         // ============================================
-        const penPanel = document.getElementById('penDevPanel');
+        document.getElementById('pauseBtn').onclick = () => {
+            isPaused = !isPaused;
+            document.getElementById('pauseBtn').innerText = isPaused ? 'Resume' : 'Pause';
+        };
 
-        // Show/hide dev panel based on mode
-        const origStartMode = startMode;
-        // Override startMode to toggle panel visibility
-        (function () {
-            const _origStart = startMode;
-            // We can't reassign const, so use event-based approach instead
-        })();
+        document.getElementById('wipeBtn').onclick = () => {
+            simCtx.fillStyle = '#f5f0eb';
+            simCtx.fillRect(0, 0, w, h);
+            // Reset error map
+            if (darknessMap) {
+                for (let i = 0; i < darknessMap.length; i++) errorMap[i] = darknessMap[i];
+            }
+            activePen = new ChaoticPen();
+            simStartTime = performance.now();
+        };
 
-        // Wire all pen sliders to penCfg
-        function wirePenSlider(id, key) {
-            const el = document.getElementById('pen-' + id);
-            const valEl = document.getElementById('pv-' + id);
-            if (!el || !valEl) return;
+        document.getElementById('toggleErrorBtn').onclick = () => {
+            showErrorOverlay = !showErrorOverlay;
+            document.getElementById('toggleErrorBtn').innerText = showErrorOverlay ? 'Hide Error Map' : 'Show Error Map';
+            if (showErrorOverlay && errorMap) {
+                // Draw error map overlay
+                const imgData = simCtx.getImageData(0, 0, w, h);
+                for (let i = 0; i < errorMap.length; i++) {
+                    const pi = i * 4;
+                    const e = errorMap[i];
+                    // Red channel = error intensity
+                    imgData.data[pi] = Math.floor(e * 255);
+                    imgData.data[pi + 1] = 0;
+                    imgData.data[pi + 2] = Math.floor((1 - e) * 100);
+                    imgData.data[pi + 3] = 255;
+                }
+                simCtx.putImageData(imgData, 0, 0);
+            } else {
+                // Restart drawing from scratch on the current canvas
+                // (just unpause effectively)
+            }
+        };
+
+        document.getElementById('exportBtn').onclick = () => {
+            const link = document.createElement('a');
+            link.download = `chaotic-pen-${Date.now()}.png`;
+            link.href = simCanvas.toDataURL('image/png', 1.0);
+            link.click();
+        };
+
+        document.getElementById('collapseBtn').onclick = () => {
+            const bar = document.getElementById('bottomBar');
+            bar.classList.toggle('collapsed');
+            document.getElementById('collapseBtn').innerText = bar.classList.contains('collapsed') ? '▲' : '▼';
+        };
+
+        // ============================================
+        //  DEV PANEL WIRING
+        // ============================================
+        function wire(id, key) {
+            const el = document.getElementById('p-' + id);
+            const vEl = document.getElementById('v-' + id);
+            if (!el) return;
             el.oninput = (e) => {
-                const v = parseFloat(e.target.value);
-                penCfg[key] = v;
-                valEl.innerText = v % 1 === 0 ? v : v.toFixed(3);
+                const v = el.type === 'checkbox' ? el.checked : parseFloat(e.target.value);
+                pen[key] = v;
+                if (vEl) vEl.innerText = typeof v === 'number' ? (v % 1 === 0 ? v : v.toFixed(3)) : '';
             };
         }
-
-        wirePenSlider('maxSpeed', 'maxSpeed');
-        wirePenSlider('stepsPerFrame', 'stepsPerFrame');
-        wirePenSlider('wanderRate', 'wanderRate');
-        wirePenSlider('wanderForce', 'wanderForce');
-        wirePenSlider('magnetPull', 'magnetPull');
-        wirePenSlider('magnetStrMin', 'magnetStrMin');
-        wirePenSlider('magnetStrRange', 'magnetStrRange');
-        wirePenSlider('magnetOnMin', 'magnetOnMin');
-        wirePenSlider('magnetOnRange', 'magnetOnRange');
-        wirePenSlider('magnetOffMin', 'magnetOffMin');
-        wirePenSlider('magnetOffRange', 'magnetOffRange');
-        wirePenSlider('searchRadiusOn', 'searchRadiusOn');
-        wirePenSlider('searchRadiusOff', 'searchRadiusOff');
-        wirePenSlider('searchStep', 'searchStep');
-        wirePenSlider('nearThreshold', 'nearThreshold');
-        wirePenSlider('nearRadius', 'nearRadius');
-        wirePenSlider('lineWidthOn', 'lineWidthOn');
-        wirePenSlider('lineWidthOff', 'lineWidthOff');
-        wirePenSlider('alphaOn', 'alphaOn');
-        wirePenSlider('alphaOff', 'alphaOff');
-        wirePenSlider('borderMargin', 'borderMargin');
-        wirePenSlider('borderPush', 'borderPush');
+        wire('maxSpeed', 'maxSpeed'); wire('stepsPerFrame', 'stepsPerFrame');
+        wire('wanderRate', 'wanderRate'); wire('wanderForce', 'wanderForce');
+        wire('errorPull', 'errorPull'); wire('searchRadius', 'searchRadius'); wire('searchStep', 'searchStep');
+        wire('flowStrength', 'flowStrength');
+        wire('dwellFactor', 'dwellFactor'); wire('repulsion', 'repulsion');
+        wire('lineWidthMin', 'lineWidthMin'); wire('lineWidthMax', 'lineWidthMax');
+        wire('alphaMin', 'alphaMin'); wire('alphaMax', 'alphaMax');
+        wire('borderMargin', 'borderMargin'); wire('borderPush', 'borderPush');
+        wire('decayRadius', 'decayRadius'); wire('decayAmount', 'decayAmount');
+        wire('autoPhase', 'autoPhase');
 
     </script>
 </body>
