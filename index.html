@@ -1,0 +1,1661 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chaotic Pen Studio</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"
+        crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"
+        crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <style>
+        :root {
+            --bg: #050505;
+            --panel: rgba(15, 15, 18, 0.92);
+            --text: #e0e0e0;
+            --dim: #777;
+            --accent: #fff;
+            --font: 'Inter', -apple-system, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            outline: none;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .view {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 0.5s;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .view.active {
+            opacity: 1;
+            pointer-events: auto;
+            z-index: 20;
+        }
+
+        .top-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 1.2rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 100;
+            pointer-events: none;
+        }
+
+        .top-bar>* {
+            pointer-events: auto;
+        }
+
+        .logo {
+            font-weight: 300;
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+            font-size: 0.7rem;
+            color: var(--dim);
+        }
+
+        .phase-indicator {
+            font-size: 0.7rem;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: var(--accent);
+        }
+
+        .floating-panel {
+            position: absolute;
+            bottom: 1.5rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--panel);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            padding: 0.8rem 1.5rem;
+            border-radius: 50px;
+            display: flex;
+            gap: 1.2rem;
+            align-items: center;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+            flex-wrap: wrap;
+            justify-content: center;
+            max-width: 95vw;
+        }
+
+        .floating-panel.collapsed {
+            display: none !important;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+        }
+
+        .control-group label {
+            font-size: 0.55rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--dim);
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 90px;
+            height: 2px;
+            background: #333;
+            border-radius: 1px;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 10px;
+            height: 10px;
+            background: var(--accent);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .btn {
+            background: transparent;
+            border: 1px solid #444;
+            color: var(--text);
+            padding: 0.5rem 1rem;
+            border-radius: 25px;
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: #000;
+            border: none;
+            font-weight: 600;
+        }
+
+        .btn-primary:hover {
+            background: #e0e0e0;
+        }
+
+        .canvas-wrapper {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            height: 100%;
+        }
+
+        canvas {
+            max-width: 90vw;
+            max-height: 80vh;
+            box-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
+            border-radius: 4px;
+        }
+
+        #editCanvas {
+            cursor: crosshair;
+            background: #000;
+        }
+
+        #simCanvas {
+            background: #f5f0eb;
+        }
+
+        .eraser-cursor {
+            position: fixed;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            border-radius: 50%;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            z-index: 9999;
+            display: none;
+        }
+
+        .splash-content {
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            align-items: center;
+        }
+
+        h1 {
+            font-size: 2rem;
+            font-weight: 200;
+            letter-spacing: 0.4em;
+            text-transform: uppercase;
+        }
+
+        .hidden-input {
+            display: none;
+        }
+
+        .sep {
+            width: 1px;
+            height: 24px;
+            background: #333;
+        }
+
+        /* Status bar (top center) */
+        .status-bar {
+            position: absolute;
+            top: 1.2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(10px);
+            padding: 0.4rem 1.2rem;
+            border-radius: 30px;
+            display: flex;
+            align-items: center;
+            gap: 1.2rem;
+            pointer-events: none;
+            z-index: 100;
+            font-size: 0.75rem;
+        }
+
+        .status-bar .clock {
+            font-family: monospace;
+            font-size: 1rem;
+            font-weight: bold;
+            color: var(--accent);
+        }
+
+        .status-bar .phase {
+            color: var(--dim);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            font-size: 0.65rem;
+        }
+
+        .status-bar .coverage {
+            color: #f0c040;
+            font-family: monospace;
+            font-size: 0.75rem;
+        }
+
+        /* Collapse toggle */
+        .collapse-toggle {
+            position: absolute;
+            bottom: 1.5rem;
+            right: 1.5rem;
+            z-index: 110;
+            background: var(--panel);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: var(--dim);
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+
+        .collapse-toggle:hover {
+            color: var(--accent);
+            border-color: var(--accent);
+        }
+
+        /* Right Dev Panel */
+        .dev-panel {
+            position: absolute;
+            top: 50px;
+            right: 0;
+            bottom: 70px;
+            width: 270px;
+            background: rgba(10, 10, 14, 0.94);
+            backdrop-filter: blur(12px);
+            border-left: 1px solid rgba(255, 255, 255, 0.06);
+            z-index: 90;
+            overflow-y: auto;
+            padding: 0.8rem 1rem 2rem;
+            display: none;
+            scrollbar-width: thin;
+            scrollbar-color: #333 transparent;
+        }
+
+        .dev-panel.visible {
+            display: block;
+        }
+
+        .dev-panel::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .dev-panel::-webkit-scrollbar-thumb {
+            background: #333;
+            border-radius: 2px;
+        }
+
+        .dev-panel h3 {
+            font-size: 0.6rem;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--accent);
+            margin: 0.8rem 0 0.4rem;
+            padding-bottom: 0.25rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .dev-panel h3:first-child {
+            margin-top: 0;
+        }
+
+        .dev-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 0.5rem;
+        }
+
+        .dev-row label {
+            font-size: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--dim);
+            flex: 1;
+            min-width: 0;
+        }
+
+        .dev-row input[type="range"] {
+            width: 75px;
+        }
+
+        .dev-row .dev-val {
+            font-family: monospace;
+            font-size: 0.55rem;
+            color: var(--accent);
+            width: 36px;
+            text-align: right;
+            flex-shrink: 0;
+        }
+
+        .dev-row .tip {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            border: 1px solid #444;
+            color: #555;
+            font-size: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: help;
+            flex-shrink: 0;
+            position: relative;
+        }
+
+        .dev-row .tip:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .dev-row .tip .tiptext {
+            display: none;
+            position: absolute;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: #1a1a1e;
+            border: 1px solid #333;
+            color: var(--text);
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 9px;
+            width: 160px;
+            line-height: 1.3;
+            text-transform: none;
+            letter-spacing: 0;
+            z-index: 200;
+            white-space: normal;
+        }
+
+        .dev-row .tip:hover .tiptext {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="top-bar">
+        <div class="logo">Chaotic Pen</div>
+        <div class="phase-indicator" id="phaseIndicator">Upload</div>
+        <button class="btn" style="opacity:0;pointer-events:none;" id="restartBtn">Restart</button>
+    </div>
+
+    <!-- VIEW 1: SPLASH -->
+    <div class="view active" id="view-splash">
+        <div class="splash-content">
+            <h1>Chaotic Pen</h1>
+            <p style="font-size:0.8rem;color:var(--dim);letter-spacing:0.1em;max-width:400px;line-height:1.5;">
+                Upload a portrait. The system will detect the face, build a density map, and deploy a single chaotic pen
+                to sketch it — one continuous stroke.
+            </p>
+            <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Load
+                Portrait</button>
+        </div>
+    </div>
+
+    <!-- VIEW 2: EDGE EDITOR -->
+    <div class="view" id="view-edit">
+        <div class="canvas-wrapper">
+            <canvas id="editCanvas"></canvas>
+            <div class="eraser-cursor" id="eraserCursor"></div>
+        </div>
+        <div class="floating-panel">
+            <div class="control-group"><label>Edge Detail</label><input type="range" id="edgeThreshold" min="10"
+                    max="150" value="45"></div>
+            <div class="control-group"><label>Eraser</label><input type="range" id="eraserSize" min="5" max="100"
+                    value="30"></div>
+            <div class="sep"></div>
+            <button class="btn" id="resetEdgesBtn">Reset</button>
+            <button class="btn btn-primary" id="startPenBtn">Start Pen ▸</button>
+        </div>
+    </div>
+
+    <!-- VIEW 3: PEN SIMULATION -->
+    <div class="view" id="view-sim">
+        <div class="canvas-wrapper">
+            <canvas id="simCanvas"></canvas>
+        </div>
+
+        <div class="status-bar" id="statusBar">
+            <span class="clock" id="clockDisplay">00:00</span>
+            <span class="phase" id="phaseDisplay">Outline</span>
+            <span class="coverage" id="coverageDisplay">0%</span>
+        </div>
+
+        <div class="floating-panel" id="bottomBar">
+            <button class="btn" id="pauseBtn">Pause</button>
+            <button class="btn" id="autoDrawBtn">Auto Draw</button>
+            <button class="btn" id="wipeBtn">Wipe</button>
+            <button class="btn" id="toggleErrorBtn">Error Map</button>
+            <div class="sep"></div>
+            <button class="btn btn-primary" id="exportBtn">Export PNG</button>
+        </div>
+        <button class="collapse-toggle" id="collapseBtn" title="Toggle bar">▼</button>
+
+        <!-- DEV PANEL -->
+        <div class="dev-panel visible" id="devPanel">
+            <h3>⚡ Speed & Motion</h3>
+            <div class="dev-row"><label>Max Speed</label><input type="range" id="p-maxSpeed" min="0.5" max="25"
+                    step="0.5" value="3"><span class="dev-val" id="v-maxSpeed">3</span><span class="tip">?<span
+                        class="tiptext">Maximum pen velocity. Higher = faster coverage, less detail.</span></span></div>
+            <div class="dev-row"><label>Steps/Frame</label><input type="range" id="p-stepsPerFrame" min="1" max="200"
+                    step="1" value="100"><span class="dev-val" id="v-stepsPerFrame">100</span><span class="tip">?<span
+                        class="tiptext">How many pen steps per animation frame. Higher = faster drawing.</span></span>
+            </div>
+            <div class="dev-row"><label>Wander Rate</label><input type="range" id="p-wanderRate" min="0.01" max="1.5"
+                    step="0.01" value="0.4"><span class="dev-val" id="v-wanderRate">0.4</span><span class="tip">?<span
+                        class="tiptext">How chaotically the pen direction changes. Higher = more scribble.</span></span>
+            </div>
+            <div class="dev-row"><label>Wander Force</label><input type="range" id="p-wanderForce" min="0.001"
+                    max="0.15" step="0.001" value="0.02"><span class="dev-val" id="v-wanderForce">0.02</span><span
+                    class="tip">?<span class="tiptext">Strength of the random drift force applied to the
+                        pen.</span></span></div>
+
+            <h3>🧲 Error Attraction</h3>
+            <div class="dev-row"><label>Pull Strength</label><input type="range" id="p-errorPull" min="0.005" max="0.3"
+                    step="0.005" value="0.08"><span class="dev-val" id="v-errorPull">0.08</span><span class="tip">?<span
+                        class="tiptext">How strongly the pen is pulled toward high-error (under-drawn)
+                        areas.</span></span></div>
+            <div class="dev-row"><label>Search Radius</label><input type="range" id="p-searchRadius" min="5" max="100"
+                    step="1" value="40"><span class="dev-val" id="v-searchRadius">40</span><span class="tip">?<span
+                        class="tiptext">How far the pen looks to find under-drawn areas. Larger = smoother
+                        paths.</span></span></div>
+            <div class="dev-row"><label>Search Step</label><input type="range" id="p-searchStep" min="1" max="10"
+                    step="1" value="4"><span class="dev-val" id="v-searchStep">4</span><span class="tip">?<span
+                        class="tiptext">Pixel step size when scanning for error. Lower = more accurate,
+                        slower.</span></span></div>
+
+            <h3>🌊 Flow Alignment</h3>
+            <div class="dev-row"><label>Flow Strength</label><input type="range" id="p-flowStrength" min="0" max="0.15"
+                    step="0.005" value="0.04"><span class="dev-val" id="v-flowStrength">0.04</span><span
+                    class="tip">?<span class="tiptext">How strongly the pen aligns to facial contour
+                        directions.</span></span></div>
+
+            <h3>🔄 Dwell Looping</h3>
+            <div class="dev-row"><label>Dwell Factor</label><input type="range" id="p-dwellFactor" min="0" max="3"
+                    step="0.1" value="1.2"><span class="dev-val" id="v-dwellFactor">1.2</span><span class="tip">?<span
+                        class="tiptext">In dark areas the pen's wander tightens into loops. Higher = tighter circles in
+                        shadows.</span></span></div>
+            <div class="dev-row"><label>Repulsion</label><input type="range" id="p-repulsion" min="0" max="0.1"
+                    step="0.005" value="0.02"><span class="dev-val" id="v-repulsion">0.02</span><span class="tip">?<span
+                        class="tiptext">Push pen away from already-saturated areas (error near zero).</span></span>
+            </div>
+
+            <h3>✏️ Line Style</h3>
+            <div class="dev-row"><label>Width Min</label><input type="range" id="p-lineWidthMin" min="0.05" max="1"
+                    step="0.05" value="0.2"><span class="dev-val" id="v-lineWidthMin">0.2</span><span class="tip">?<span
+                        class="tiptext">Line width in light areas.</span></span></div>
+            <div class="dev-row"><label>Width Max</label><input type="range" id="p-lineWidthMax" min="0.5" max="4"
+                    step="0.1" value="1.8"><span class="dev-val" id="v-lineWidthMax">1.8</span><span class="tip">?<span
+                        class="tiptext">Line width in dark areas.</span></span></div>
+            <div class="dev-row"><label>Alpha Min</label><input type="range" id="p-alphaMin" min="0.005" max="0.3"
+                    step="0.005" value="0.03"><span class="dev-val" id="v-alphaMin">0.03</span><span class="tip">?<span
+                        class="tiptext">Ink opacity in light areas.</span></span></div>
+            <div class="dev-row"><label>Alpha Max</label><input type="range" id="p-alphaMax" min="0.1" max="1"
+                    step="0.05" value="0.7"><span class="dev-val" id="v-alphaMax">0.7</span><span class="tip">?<span
+                        class="tiptext">Ink opacity in dark areas.</span></span></div>
+
+            <h3>🧱 Border</h3>
+            <div class="dev-row"><label>Margin</label><input type="range" id="p-borderMargin" min="5" max="80" step="5"
+                    value="25"><span class="dev-val" id="v-borderMargin">25</span><span class="tip">?<span
+                        class="tiptext">Distance from edge where border push activates.</span></span></div>
+            <div class="dev-row"><label>Push Force</label><input type="range" id="p-borderPush" min="0.005" max="0.15"
+                    step="0.005" value="0.04"><span class="dev-val" id="v-borderPush">0.04</span><span
+                    class="tip">?<span class="tiptext">How hard the pen is pushed away from canvas
+                        borders.</span></span></div>
+
+            <h3>⏱ Error Decay</h3>
+            <div class="dev-row"><label>Decay Radius</label><input type="range" id="p-decayRadius" min="1" max="15"
+                    step="1" value="5"><span class="dev-val" id="v-decayRadius">5</span><span class="tip">?<span
+                        class="tiptext">Radius around each drawn point where error is reduced.</span></span></div>
+            <div class="dev-row"><label>Decay Amount</label><input type="range" id="p-decayAmount" min="0.001"
+                    max="0.05" step="0.001" value="0.008"><span class="dev-val" id="v-decayAmount">0.008</span><span
+                    class="tip">?<span class="tiptext">How much error is reduced per stroke. Lower = pen revisits areas
+                        more.</span></span></div>
+        </div>
+    </div>
+
+    <input type="file" id="fileInput" class="hidden-input" accept="image/*">
+
+    <script>
+        // ============================================
+        //  CORE ELEMENTS
+        // ============================================
+        const views = { splash: document.getElementById('view-splash'), edit: document.getElementById('view-edit'), sim: document.getElementById('view-sim') };
+        const editCanvas = document.getElementById('editCanvas');
+        const editCtx = editCanvas.getContext('2d', { willReadFrequently: true });
+        const simCanvas = document.getElementById('simCanvas');
+        const simCtx = simCanvas.getContext('2d', { willReadFrequently: true });
+        const phaseIndicator = document.getElementById('phaseIndicator');
+        const restartBtn = document.getElementById('restartBtn');
+
+        let sourceImgData = null;
+        let originalImg = null;
+        let w, h;
+        let simulationRaf;
+        let faceWeight = null; // Float32Array: 0.0 (outside) to 1.0 (inside face) — soft feathered
+        let isPaused = false;
+        let simStartTime = 0;
+        let savedCanvasData = null;
+        let isAutoDrawing = true;
+
+        // === 3 PRE-COMPUTED MAPS ===
+        let darknessMap = null;   // Float32Array: 0.0 (white) to 1.0 (black)
+        let flowFieldX = null;    // Float32Array: flow direction X component
+        let flowFieldY = null;    // Float32Array: flow direction Y component
+        let errorMap = null;      // Float32Array: remaining "ink needed" per pixel
+        let edgeDataArray = null; // Uint8Array: 1 = edge pixel (for edge editor display)
+
+        // ============================================
+        //  PEN CONFIG — all driven from dev panel
+        // ============================================
+        const pen = {
+            maxSpeed: 3, stepsPerFrame: 100,
+            wanderRate: 0.4, wanderForce: 0.02,
+            errorPull: 0.08, searchRadius: 40, searchStep: 4,
+            flowStrength: 0.04,
+            dwellFactor: 1.2, repulsion: 0.02,
+            lineWidthMin: 0.2, lineWidthMax: 1.8,
+            alphaMin: 0.03, alphaMax: 0.7,
+            borderMargin: 25, borderPush: 0.04,
+            decayRadius: 5, decayAmount: 0.008
+        };
+
+        // ============================================
+        //  MEDIAPIPE FACE MESH
+        // ============================================
+        const faceMeshInstance = new FaceMesh({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}` });
+        faceMeshInstance.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.2, minTrackingConfidence: 0.4 });
+        let storedLandmarks = null;
+
+        faceMeshInstance.onResults((results) => {
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                storedLandmarks = results.multiFaceLandmarks[0];
+                buildSoftFaceMask(storedLandmarks);
+                console.log("Face detected.");
+            } else {
+                console.warn("No face detected. Using full image.");
+                faceWeight = new Float32Array(w * h).fill(1.0);
+            }
+            generateEdges();
+            setView('edit');
+        });
+
+        function buildSoftFaceMask(landmarks) {
+            // Step 1: Draw sharp face polygon
+            const mc = document.createElement('canvas'); mc.width = w; mc.height = h;
+            const mCtx = mc.getContext('2d');
+            let ovalIndices = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109];
+            if (window.FACEMESH_FACE_OVAL) {
+                const pairs = [...window.FACEMESH_FACE_OVAL];
+                ovalIndices = [pairs[0][0]];
+                for (let i = 0; i < pairs.length; i++) ovalIndices.push(pairs[i][1]);
+            }
+            let cx = 0, cy = 0;
+            ovalIndices.forEach(idx => { cx += landmarks[idx].x * w; cy += landmarks[idx].y * h; });
+            cx /= ovalIndices.length; cy /= ovalIndices.length;
+            const padding = 1.3; // Large to ensure no clipping
+            mCtx.fillStyle = '#fff'; mCtx.beginPath();
+            ovalIndices.forEach((idx, i) => {
+                let px = cx + (landmarks[idx].x * w - cx) * padding;
+                let py = cy + (landmarks[idx].y * h - cy) * padding;
+                if (i === 0) mCtx.moveTo(px, py); else mCtx.lineTo(px, py);
+            });
+            mCtx.closePath(); mCtx.fill();
+
+            // Step 2: Gaussian blur the mask for soft feathering
+            const blurCanvas = document.createElement('canvas'); blurCanvas.width = w; blurCanvas.height = h;
+            const bCtx = blurCanvas.getContext('2d');
+            bCtx.filter = 'blur(80px)'; // Wide feather for invisible boundary
+            bCtx.drawImage(mc, 0, 0);
+
+            // Step 3: Read blurred values as float weights
+            const blurData = bCtx.getImageData(0, 0, w, h).data;
+            faceWeight = new Float32Array(w * h);
+            for (let i = 0; i < blurData.length; i += 4) {
+                faceWeight[i / 4] = blurData[i] / 255.0; // 0.0 to 1.0 smooth gradient
+            }
+            console.log('Soft face mask built with 80px feather.');
+        }
+
+        // ============================================
+        //  NAVIGATION
+        // ============================================
+        function setView(v) {
+            Object.values(views).forEach(el => el.classList.remove('active'));
+            views[v].classList.add('active');
+            if (v === 'splash') { phaseIndicator.innerText = "Upload"; restartBtn.style.opacity = "0"; restartBtn.style.pointerEvents = "none"; cancelAnimationFrame(simulationRaf); }
+            else if (v === 'edit') { phaseIndicator.innerText = "Isolate Edges"; restartBtn.style.opacity = "1"; restartBtn.style.pointerEvents = "auto"; }
+            else if (v === 'sim') { phaseIndicator.innerText = "Drawing"; }
+        }
+        restartBtn.onclick = () => setView('splash');
+
+        // ============================================
+        //  PHASE 1: UPLOAD
+        // ============================================
+        document.getElementById('fileInput').onchange = (e) => {
+            const f = e.target.files[0]; if (!f) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => { originalImg = new Image(); originalImg.onload = () => initEditor(originalImg); originalImg.src = ev.target.result; };
+            reader.readAsDataURL(f);
+        };
+
+        // ============================================
+        //  PHASE 2: EDGE EDITOR
+        // ============================================
+        const config = { eraserSize: 30, edgeThreshold: 45 };
+
+        function initEditor(img) {
+            const maxW = window.innerWidth * 0.9, maxH = window.innerHeight * 0.8;
+            const scale = Math.min(maxW / img.width, maxH / img.height);
+            w = editCanvas.width = simCanvas.width = Math.max(1, Math.floor(img.width * scale));
+            h = editCanvas.height = simCanvas.height = Math.max(1, Math.floor(img.height * scale));
+            const tc = document.createElement('canvas'); tc.width = w; tc.height = h;
+            const tCtx = tc.getContext('2d'); tCtx.drawImage(img, 0, 0, w, h);
+            sourceImgData = tCtx.getImageData(0, 0, w, h).data;
+            phaseIndicator.innerText = "Detecting face...";
+            faceMeshInstance.send({ image: tc });
+        }
+
+        function generateEdges() {
+            const blurC = document.createElement('canvas'); blurC.width = w; blurC.height = h;
+            const bCtx = blurC.getContext('2d'); bCtx.filter = 'blur(2px)';
+            const srcC = document.createElement('canvas'); srcC.width = w; srcC.height = h;
+            srcC.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(sourceImgData), w, h), 0, 0);
+            bCtx.drawImage(srcC, 0, 0);
+            const blurData = bCtx.getImageData(0, 0, w, h).data;
+            const edges = new Uint8ClampedArray(w * h * 4);
+            const luma = new Uint8Array(w * h);
+            for (let i = 0; i < blurData.length; i += 4) luma[i / 4] = blurData[i] * 0.21 + blurData[i + 1] * 0.72 + blurData[i + 2] * 0.07;
+            for (let y = 1; y < h - 1; y++) {
+                for (let x = 1; x < w - 1; x++) {
+                    const idx = y * w + x;
+                    const hg = -luma[(y - 1) * w + (x - 1)] + luma[(y - 1) * w + (x + 1)] - 2 * luma[y * w + (x - 1)] + 2 * luma[y * w + (x + 1)] - luma[(y + 1) * w + (x - 1)] + luma[(y + 1) * w + (x + 1)];
+                    const vg = -luma[(y - 1) * w + (x - 1)] - 2 * luma[(y - 1) * w + x] - luma[(y - 1) * w + (x + 1)] + luma[(y + 1) * w + (x - 1)] + 2 * luma[(y + 1) * w + x] + luma[(y + 1) * w + (x + 1)];
+                    const val = Math.sqrt(hg * hg + vg * vg);
+                    const pi = idx * 4;
+                    const fw = faceWeight ? faceWeight[idx] : 1.0;
+                    // Smooth threshold: lower inside face (more detail), higher outside
+                    const thresh = config.edgeThreshold * (0.7 + (1.0 - fw) * 1.3);
+                    if (val > thresh) {
+                        const b = Math.floor(80 + fw * 175); // Smooth brightness fade
+                        edges[pi] = b; edges[pi + 1] = b; edges[pi + 2] = b; edges[pi + 3] = 255;
+                    } else { edges[pi] = 0; edges[pi + 1] = 0; edges[pi + 2] = 0; edges[pi + 3] = 255; }
+                }
+            }
+            editCtx.putImageData(new ImageData(edges, w, h), 0, 0);
+        }
+
+        document.getElementById('edgeThreshold').oninput = (e) => { config.edgeThreshold = parseInt(e.target.value); generateEdges(); };
+        document.getElementById('eraserSize').oninput = (e) => { config.eraserSize = parseInt(e.target.value); document.getElementById('eraserCursor').style.width = `${config.eraserSize * 2}px`; document.getElementById('eraserCursor').style.height = `${config.eraserSize * 2}px`; };
+        document.getElementById('resetEdgesBtn').onclick = generateEdges;
+
+        let isErasing = false; let elX, elY;
+        const cursor = document.getElementById('eraserCursor');
+        function getMousePos(c, e) { const r = c.getBoundingClientRect(); return { x: (e.clientX - r.left) * c.width / r.width, y: (e.clientY - r.top) * c.height / r.height }; }
+        editCanvas.addEventListener('mousedown', (e) => { isErasing = true; const p = getMousePos(editCanvas, e); elX = p.x; elY = p.y; erase(p.x, p.y); });
+        editCanvas.addEventListener('mousemove', (e) => { cursor.style.display = 'block'; cursor.style.left = e.clientX + 'px'; cursor.style.top = e.clientY + 'px'; if (isErasing) { const p = getMousePos(editCanvas, e); erase(p.x, p.y, true); elX = p.x; elY = p.y; } });
+        editCanvas.addEventListener('mouseup', () => isErasing = false);
+        editCanvas.addEventListener('mouseleave', () => { isErasing = false; cursor.style.display = 'none'; });
+        function erase(x, y, line = false) {
+            editCtx.fillStyle = '#000'; editCtx.strokeStyle = '#000'; editCtx.lineWidth = config.eraserSize * 2; editCtx.lineCap = 'round';
+            if (line) { editCtx.beginPath(); editCtx.moveTo(elX, elY); editCtx.lineTo(x, y); editCtx.stroke(); }
+            else { editCtx.beginPath(); editCtx.arc(x, y, config.eraserSize, 0, Math.PI * 2); editCtx.fill(); }
+        }
+
+        // ============================================
+        //  TRANSITION: BUILD 3 MAPS & START PEN
+        // ============================================
+        document.getElementById('startPenBtn').onclick = () => {
+            buildMaps();
+            startPen();
+            setView('sim');
+        };
+
+        function buildMaps() {
+            const n = w * h;
+
+            // 1) DARKNESS MAP from grayscale — soft-blended with face weight
+            darknessMap = new Float32Array(n);
+            for (let i = 0; i < n; i++) {
+                const pi = i * 4;
+                const lum = sourceImgData[pi] * 0.21 + sourceImgData[pi + 1] * 0.72 + sourceImgData[pi + 2] * 0.07;
+                let darkness = 1.0 - (lum / 255.0);
+                // Soft blend: inside face = full darkness, outside = fades smoothly
+                const fw = faceWeight ? faceWeight[i] : 1.0;
+                darkness *= (0.25 + fw * 0.75); // Smooth: center=100%, far outside=25%
+                darknessMap[i] = darkness;
+            }
+
+            // Second pass: Gaussian-smooth the darkness map to eliminate any residual transitions
+            // Use a fast box blur approximation (2 passes of horizontal+vertical)
+            const tempMap = new Float32Array(n);
+            const blurR = 8; // 8px blur radius
+            for (let pass = 0; pass < 2; pass++) {
+                // Horizontal
+                for (let y = 0; y < h; y++) {
+                    for (let x = 0; x < w; x++) {
+                        let sum = 0, cnt = 0;
+                        for (let dx = -blurR; dx <= blurR; dx++) {
+                            const nx = x + dx;
+                            if (nx >= 0 && nx < w) { sum += darknessMap[y * w + nx]; cnt++; }
+                        }
+                        tempMap[y * w + x] = sum / cnt;
+                    }
+                }
+                // Vertical
+                for (let x = 0; x < w; x++) {
+                    for (let y = 0; y < h; y++) {
+                        let sum = 0, cnt = 0;
+                        for (let dy = -blurR; dy <= blurR; dy++) {
+                            const ny = y + dy;
+                            if (ny >= 0 && ny < h) { sum += tempMap[ny * w + x]; cnt++; }
+                        }
+                        darknessMap[y * w + x] = sum / cnt;
+                    }
+                }
+            }
+
+            // 2) FLOW FIELD from Sobel gradient (rotated 90° = along contours)
+            flowFieldX = new Float32Array(n);
+            flowFieldY = new Float32Array(n);
+            // Compute luma for gradient
+            const luma = new Uint8Array(n);
+            for (let i = 0; i < sourceImgData.length; i += 4) {
+                luma[i / 4] = sourceImgData[i] * 0.21 + sourceImgData[i + 1] * 0.72 + sourceImgData[i + 2] * 0.07;
+            }
+            for (let y = 1; y < h - 1; y++) {
+                for (let x = 1; x < w - 1; x++) {
+                    const idx = y * w + x;
+                    const gx = -luma[(y - 1) * w + (x - 1)] + luma[(y - 1) * w + (x + 1)] - 2 * luma[y * w + (x - 1)] + 2 * luma[y * w + (x + 1)] - luma[(y + 1) * w + (x - 1)] + luma[(y + 1) * w + (x + 1)];
+                    const gy = -luma[(y - 1) * w + (x - 1)] - 2 * luma[(y - 1) * w + x] - luma[(y - 1) * w + (x + 1)] + luma[(y + 1) * w + (x - 1)] + 2 * luma[(y + 1) * w + x] + luma[(y + 1) * w + (x + 1)];
+                    // Rotate 90°: flow along contour (perpendicular to gradient)
+                    const mag = Math.sqrt(gx * gx + gy * gy) || 1;
+                    flowFieldX[idx] = -gy / mag; // perpendicular
+                    flowFieldY[idx] = gx / mag;
+                }
+            }
+
+            // 3) ERROR MAP = copy of darkness map (gets reduced as we draw)
+            errorMap = new Float32Array(n);
+            for (let i = 0; i < n; i++) errorMap[i] = darknessMap[i];
+
+            // Also store edge data for display
+            const ed = editCtx.getImageData(0, 0, w, h).data;
+            edgeDataArray = new Uint8Array(n);
+            for (let i = 0; i < ed.length; i += 4) edgeDataArray[i / 4] = ed[i] > 60 ? 1 : 0;
+
+            console.log(`Maps built: ${w}x${h}, ${n} pixels`);
+        }
+
+        // ============================================
+        //  LAYER 1: THE CHAOTIC PEN (with command execution)
+        // ============================================
+        class ChaoticPen {
+            constructor() {
+                this.x = w / 2; this.y = h / 2;
+                let bestIdx = 0, bestVal = 0;
+                for (let i = 0; i < darknessMap.length; i += 50) {
+                    if (darknessMap[i] > bestVal) { bestVal = darknessMap[i]; bestIdx = i; }
+                }
+                this.x = bestIdx % w; this.y = Math.floor(bestIdx / w);
+                this.vx = (Math.random() - 0.5) * 2;
+                this.vy = (Math.random() - 0.5) * 2;
+                this.lx = this.x; this.ly = this.y;
+                this.wanderAngle = Math.random() * Math.PI * 2;
+                this.totalSteps = 0;
+                this.smoothDarkness = 0;
+
+                // Command state
+                this.command = null;       // Current command object
+                this.cmdStep = 0;          // Steps into current command
+                this.scribbleAngle = 0;    // For SCRIBBLE
+                this.cmdLineWidth = 0.4;
+                this.cmdAlpha = 0.1;
+            }
+
+            // === MANUAL MODE: original force-based update ===
+            update() {
+                this.totalSteps++;
+                let steerX = 0, steerY = 0;
+                const ix = Math.floor(this.x), iy = Math.floor(this.y);
+                const pixIdx = iy * w + ix;
+                const localDarkness = (ix >= 0 && ix < w && iy >= 0 && iy < h) ? darknessMap[pixIdx] : 0;
+                const localError = (ix >= 0 && ix < w && iy >= 0 && iy < h) ? errorMap[pixIdx] : 0;
+                this.smoothDarkness = this.smoothDarkness * 0.92 + localDarkness * 0.08;
+
+                // Force 1: Error Attraction
+                let errDx = 0, errDy = 0, errTotal = 0;
+                const sr = pen.searchRadius, ss = pen.searchStep;
+                for (let ox = -sr; ox <= sr; ox += ss) {
+                    for (let oy = -sr; oy <= sr; oy += ss) {
+                        const cx = ix + ox, cy = iy + oy;
+                        if (cx >= 0 && cx < w && cy >= 0 && cy < h) {
+                            const e = errorMap[cy * w + cx];
+                            if (e > 0.05) {
+                                const dist = Math.sqrt(ox * ox + oy * oy) || 1;
+                                const weight = e / dist;
+                                errDx += (ox / dist) * weight; errDy += (oy / dist) * weight; errTotal += weight;
+                            }
+                        }
+                    }
+                }
+                if (errTotal > 0) {
+                    const em = Math.sqrt(errDx * errDx + errDy * errDy) || 1;
+                    steerX += (errDx / em) * pen.errorPull; steerY += (errDy / em) * pen.errorPull;
+                }
+
+                // Force 2: Flow Alignment
+                if (ix >= 0 && ix < w && iy >= 0 && iy < h && pen.flowStrength > 0) {
+                    steerX += flowFieldX[pixIdx] * pen.flowStrength * localDarkness;
+                    steerY += flowFieldY[pixIdx] * pen.flowStrength * localDarkness;
+                }
+
+                // Force 3: Dwell Looping
+                const dwellMod = 1.0 + localDarkness * pen.dwellFactor;
+
+                // Force 4: Repulsion
+                if (localError < 0.02 && pen.repulsion > 0) {
+                    steerX += (Math.random() - 0.5) * pen.repulsion * 3;
+                    steerY += (Math.random() - 0.5) * pen.repulsion * 3;
+                }
+
+                // Force 5: Wander
+                this.wanderAngle += (Math.random() - 0.5) * pen.wanderRate * dwellMod;
+                steerX += Math.cos(this.wanderAngle) * pen.wanderForce;
+                steerY += Math.sin(this.wanderAngle) * pen.wanderForce;
+
+                // Force 6: Border Avoidance
+                const m = pen.borderMargin, bp = pen.borderPush;
+                if (this.x < m) steerX += bp * (1 - this.x / m);
+                if (this.x > w - m) steerX -= bp * (1 - (w - this.x) / m);
+                if (this.y < m) steerY += bp * (1 - this.y / m);
+                if (this.y > h - m) steerY -= bp * (1 - (h - this.y) / m);
+
+                this.vx += steerX; this.vy += steerY;
+                const speedMod = 1.0 - localDarkness * 0.4;
+                const maxSpd = pen.maxSpeed * Math.max(0.3, speedMod);
+                const spd = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                if (spd > maxSpd) { this.vx = (this.vx / spd) * maxSpd; this.vy = (this.vy / spd) * maxSpd; }
+
+                this.lx = this.x; this.ly = this.y;
+                this.x += this.vx; this.y += this.vy;
+                this.x = Math.max(1, Math.min(w - 1, this.x));
+                this.y = Math.max(1, Math.min(h - 1, this.y));
+                this.decayError();
+            }
+
+            // === AUTO MODE: execute pen commands from Director ===
+            executeCommand() {
+                this.totalSteps++;
+                if (!this.command) {
+                    // Zero out drawing params when no command active
+                    this.cmdLineWidth = 0;
+                    this.cmdAlpha = 0;
+                    return;
+                }
+                const cmd = this.command;
+                this.cmdStep++;
+
+                switch (cmd.type) {
+                    case 'GOTO': {
+                        const dx = cmd.tx - this.x, dy = cmd.ty - this.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist < 8) { this.command = null; break; }
+                        const speed = cmd.speed || 7;
+                        const drift = Math.sin(this.cmdStep * 0.12) * 0.5;
+                        const nx = dx / dist, ny = dy / dist;
+                        // Smooth velocity transition to prevent dark spots at junctions
+                        const blend = Math.min(1, this.cmdStep / 5); // ramp up over 5 steps
+                        this.vx = this.vx * (1 - blend) + (nx * speed + (-ny) * drift) * blend;
+                        this.vy = this.vy * (1 - blend) + (ny * speed + nx * drift) * blend;
+                        this.lx = this.x; this.ly = this.y;
+                        this.x += this.vx; this.y += this.vy;
+                        this.x = Math.max(1, Math.min(w - 1, this.x));
+                        this.y = Math.max(1, Math.min(h - 1, this.y));
+                        // Suppress drawing for first 3 steps (prevents dark spots at transitions)
+                        this.cmdLineWidth = this.cmdStep < 3 ? 0 : 0.12;
+                        this.cmdAlpha = this.cmdStep < 3 ? 0 : 0.01;
+                        this.decayError();
+                        break;
+                    }
+                    case 'SCRIBBLE': {
+                        if (this.cmdStep >= cmd.steps) { this.command = null; break; }
+                        // CHAOTIC LOCAL MOVEMENT — force-based, not circular orbits
+                        // This mimics the manual mode's behavior but contained to a region
+                        const ix = Math.floor(this.x), iy = Math.floor(this.y);
+                        const pidx = iy * w + ix;
+                        const ld = (ix >= 0 && ix < w && iy >= 0 && iy < h) ? darknessMap[pidx] : 0;
+                        const le = (ix >= 0 && ix < w && iy >= 0 && iy < h) ? errorMap[pidx] : 0;
+                        this.smoothDarkness = this.smoothDarkness * 0.9 + ld * 0.1;
+
+                        let sx = 0, sy = 0;
+
+                        // Local error attraction (pull toward nearby high-error pixels)
+                        const sr = 20;
+                        for (let ox = -sr; ox <= sr; ox += 4) {
+                            for (let oy = -sr; oy <= sr; oy += 4) {
+                                const cx = ix + ox, cy = iy + oy;
+                                if (cx >= 0 && cx < w && cy >= 0 && cy < h) {
+                                    const e = errorMap[cy * w + cx];
+                                    if (e > 0.04) {
+                                        const d2 = Math.sqrt(ox * ox + oy * oy) || 1;
+                                        sx += (ox / d2) * e / d2 * 0.08;
+                                        sy += (oy / d2) * e / d2 * 0.08;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Flow field alignment (follow contours)
+                        if (ix >= 1 && ix < w - 1 && iy >= 1 && iy < h - 1) {
+                            sx += flowFieldX[pidx] * 0.04 * ld * 2;
+                            sy += flowFieldY[pidx] * 0.04 * ld * 2;
+                        }
+
+                        // Chaotic wander (tighter in dark areas)
+                        const dwl = 1.0 + ld * 2.0;
+                        this.wanderAngle += (Math.random() - 0.5) * 0.5 * dwl;
+                        sx += Math.cos(this.wanderAngle) * 0.025;
+                        sy += Math.sin(this.wanderAngle) * 0.025;
+
+                        // Soft containment: gentle pull back toward region center
+                        const dx = cmd.cx - this.x, dy = cmd.cy - this.y;
+                        const dd = Math.sqrt(dx * dx + dy * dy);
+                        const containR = cmd.radius * 1.8;
+                        if (dd > containR * 0.5) {
+                            const pullStrength = 0.01 + (dd > containR ? 0.08 : 0);
+                            sx += (dx / dd) * pullStrength;
+                            sy += (dy / dd) * pullStrength;
+                        }
+
+                        // Repulsion from over-drawn spots
+                        if (le < 0.02) {
+                            sx += (Math.random() - 0.5) * 0.12;
+                            sy += (Math.random() - 0.5) * 0.12;
+                        }
+
+                        // Border avoidance
+                        if (this.x < 15) sx += 0.06; if (this.x > w - 15) sx -= 0.06;
+                        if (this.y < 15) sy += 0.06; if (this.y > h - 15) sy -= 0.06;
+
+                        this.vx += sx; this.vy += sy;
+                        const spd = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                        const maxS = cmd.speed || 3;
+                        if (spd > maxS) { this.vx = (this.vx / spd) * maxS; this.vy = (this.vy / spd) * maxS; }
+
+                        this.lx = this.x; this.ly = this.y;
+                        this.x += this.vx; this.y += this.vy;
+                        this.x = Math.max(1, Math.min(w - 1, this.x));
+                        this.y = Math.max(1, Math.min(h - 1, this.y));
+                        this.cmdLineWidth = cmd.lineWidth || 0.3;
+                        this.cmdAlpha = cmd.alpha || 0.08;
+                        this.decayError();
+                        break;
+                    }
+                    case 'CONTOUR': {
+                        if (this.cmdStep >= cmd.steps) { this.command = null; break; }
+                        const ix = Math.floor(this.x), iy = Math.floor(this.y);
+                        if (ix >= 1 && ix < w - 1 && iy >= 1 && iy < h - 1) {
+                            const pidx = iy * w + ix;
+                            const fs = cmd.flowStrength || 0.3;
+                            this.vx = this.vx * 0.7 + flowFieldX[pidx] * fs * 2.5;
+                            this.vy = this.vy * 0.7 + flowFieldY[pidx] * fs * 2.5;
+                            this.wanderAngle += (Math.random() - 0.5) * 0.25;
+                            this.vx += Math.cos(this.wanderAngle) * 0.2;
+                            this.vy += Math.sin(this.wanderAngle) * 0.2;
+                        }
+                        const cSpd = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                        const cMax = cmd.speed || 3;
+                        if (cSpd > cMax) { this.vx = (this.vx / cSpd) * cMax; this.vy = (this.vy / cSpd) * cMax; }
+                        this.lx = this.x; this.ly = this.y;
+                        this.x += this.vx; this.y += this.vy;
+                        this.x = Math.max(1, Math.min(w - 1, this.x));
+                        this.y = Math.max(1, Math.min(h - 1, this.y));
+                        this.cmdLineWidth = cmd.lineWidth || 0.3;
+                        this.cmdAlpha = cmd.alpha || 0.08;
+                        this.decayError();
+                        break;
+                    }
+                    case 'WANDER': {
+                        if (this.cmdStep >= cmd.steps) { this.command = null; break; }
+                        const ix = Math.floor(this.x), iy = Math.floor(this.y);
+                        const pidx = iy * w + ix;
+                        const ld = (ix >= 0 && ix < w && iy >= 0 && iy < h) ? darknessMap[pidx] : 0;
+                        const le = (ix >= 0 && ix < w && iy >= 0 && iy < h) ? errorMap[pidx] : 0;
+                        this.smoothDarkness = this.smoothDarkness * 0.9 + ld * 0.1;
+
+                        let sx = 0, sy = 0;
+                        // Local error attraction
+                        const lsr = 25;
+                        for (let ox = -lsr; ox <= lsr; ox += 4) {
+                            for (let oy = -lsr; oy <= lsr; oy += 4) {
+                                const cx = ix + ox, cy = iy + oy;
+                                if (cx >= 0 && cx < w && cy >= 0 && cy < h) {
+                                    const e = errorMap[cy * w + cx];
+                                    if (e > 0.04) {
+                                        const d2 = Math.sqrt(ox * ox + oy * oy) || 1;
+                                        sx += (ox / d2) * e / d2 * 0.08;
+                                        sy += (oy / d2) * e / d2 * 0.08;
+                                    }
+                                }
+                            }
+                        }
+                        this.wanderAngle += (Math.random() - 0.5) * (0.4 + ld * 1.5);
+                        sx += Math.cos(this.wanderAngle) * 0.025;
+                        sy += Math.sin(this.wanderAngle) * 0.025;
+                        // Soft containment
+                        if (cmd.cx !== undefined) {
+                            const dx = cmd.cx - this.x, dy = cmd.cy - this.y;
+                            const dd = Math.sqrt(dx * dx + dy * dy);
+                            if (dd > cmd.radius * 1.5) {
+                                sx += (dx / dd) * 0.04; sy += (dy / dd) * 0.04;
+                            }
+                        }
+                        if (this.x < 15) sx += 0.05; if (this.x > w - 15) sx -= 0.05;
+                        if (this.y < 15) sy += 0.05; if (this.y > h - 15) sy -= 0.05;
+
+                        this.vx += sx; this.vy += sy;
+                        const ws = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                        const wMax = cmd.speed || 3.5;
+                        if (ws > wMax) { this.vx = (this.vx / ws) * wMax; this.vy = (this.vy / ws) * wMax; }
+
+                        this.lx = this.x; this.ly = this.y;
+                        this.x += this.vx; this.y += this.vy;
+                        this.x = Math.max(1, Math.min(w - 1, this.x));
+                        this.y = Math.max(1, Math.min(h - 1, this.y));
+                        this.cmdLineWidth = cmd.lineWidth || 0.3;
+                        this.cmdAlpha = cmd.alpha || 0.06;
+                        this.decayError();
+                        break;
+                    }
+                }
+            }
+
+            decayError() {
+                const dr = 5, da = 0.008;
+                const cx2 = Math.floor(this.x), cy2 = Math.floor(this.y);
+                for (let ox = -dr; ox <= dr; ox++) {
+                    for (let oy = -dr; oy <= dr; oy++) {
+                        const px = cx2 + ox, py = cy2 + oy;
+                        if (px >= 0 && px < w && py >= 0 && py < h) {
+                            const dist = Math.sqrt(ox * ox + oy * oy);
+                            if (dist <= dr) {
+                                const falloff = 1.0 - (dist / dr);
+                                errorMap[py * w + px] = Math.max(0, errorMap[py * w + px] - da * falloff);
+                            }
+                        }
+                    }
+                }
+            }
+
+            drawManual() {
+                const d = this.smoothDarkness;
+                const lw = pen.lineWidthMin + d * (pen.lineWidthMax - pen.lineWidthMin);
+                const alpha = pen.alphaMin + d * (pen.alphaMax - pen.alphaMin);
+                simCtx.strokeStyle = `rgba(20, 15, 10, ${alpha})`;
+                simCtx.lineWidth = lw;
+                simCtx.lineCap = 'round'; simCtx.lineJoin = 'round';
+                simCtx.beginPath(); simCtx.moveTo(this.lx, this.ly); simCtx.lineTo(this.x, this.y); simCtx.stroke();
+            }
+
+            drawAuto() {
+                const ix = Math.floor(this.x), iy = Math.floor(this.y);
+                const pidx = iy * w + ix;
+                const ld = (ix >= 0 && ix < w && iy >= 0 && iy < h) ? darknessMap[pidx] : 0;
+                this.smoothDarkness = this.smoothDarkness * 0.92 + ld * 0.08;
+
+                // Face-aware darkness modulation:
+                // Inside face: more linear (preserve subtle skin tones for eyes, nose, lips)
+                // Outside face: quadratic (keep light background areas white)
+                const fw = (ix >= 0 && ix < w && iy >= 0 && iy < h && faceWeight) ? faceWeight[pidx] : 0;
+                const d = this.smoothDarkness;
+                const faceMod = d * (0.6 + d * 0.8);       // Inside face: semi-linear, 0.1→0.07, 0.3→0.25, 0.5→0.50
+                const bgMod = d * d * 1.5;                   // Outside face: quadratic, 0.1→0.015, 0.3→0.14
+                const darkMod = fw * faceMod + (1 - fw) * bgMod; // Blend based on face weight
+
+                const lw = this.cmdLineWidth * Math.max(0.05, darkMod);
+                const alpha = Math.min(0.6, this.cmdAlpha * Math.max(0.02, darkMod));
+
+                if (alpha < 0.002) return; // Skip invisible strokes
+                simCtx.strokeStyle = `rgba(20, 15, 10, ${alpha})`;
+                simCtx.lineWidth = lw;
+                simCtx.lineCap = 'round'; simCtx.lineJoin = 'round';
+                simCtx.beginPath(); simCtx.moveTo(this.lx, this.ly); simCtx.lineTo(this.x, this.y); simCtx.stroke();
+            }
+        }
+
+        // ============================================
+        //  LAYER 2: REGION ANALYSIS
+        // ============================================
+        function findUnfinishedRegions() {
+            // Downsample to 1/4 for speed
+            const scale = 4;
+            const sw = Math.floor(w / scale), sh = Math.floor(h / scale);
+            const small = new Float32Array(sw * sh);
+            const smallDark = new Float32Array(sw * sh);
+            for (let sy = 0; sy < sh; sy++) {
+                for (let sx = 0; sx < sw; sx++) {
+                    const ox = sx * scale, oy = sy * scale;
+                    let sum = 0, dsum = 0, cnt = 0;
+                    for (let dy = 0; dy < scale && oy + dy < h; dy++) {
+                        for (let dx = 0; dx < scale && ox + dx < w; dx++) {
+                            sum += errorMap[(oy + dy) * w + (ox + dx)];
+                            dsum += darknessMap[(oy + dy) * w + (ox + dx)];
+                            cnt++;
+                        }
+                    }
+                    small[sy * sw + sx] = sum / cnt;
+                    smallDark[sy * sw + sx] = dsum / cnt;
+                }
+            }
+
+            // Connected-component labeling via flood fill
+            const labels = new Int32Array(sw * sh).fill(-1);
+            const threshold = 0.06;
+            let nextLabel = 0;
+            const regions = [];
+
+            function floodFill(startX, startY, label) {
+                const stack = [[startX, startY]];
+                let sumX = 0, sumY = 0, sumErr = 0, sumDark = 0, count = 0;
+                let minX = sw, minY = sh, maxX = 0, maxY = 0;
+                while (stack.length > 0) {
+                    const [cx, cy] = stack.pop();
+                    const ci = cy * sw + cx;
+                    if (cx < 0 || cx >= sw || cy < 0 || cy >= sh) continue;
+                    if (labels[ci] >= 0 || small[ci] < threshold) continue;
+                    labels[ci] = label;
+                    const err = small[ci];
+                    sumX += cx * err; sumY += cy * err; // error-weighted centroid
+                    sumErr += err; sumDark += smallDark[ci]; count++;
+                    minX = Math.min(minX, cx); maxX = Math.max(maxX, cx);
+                    minY = Math.min(minY, cy); maxY = Math.max(maxY, cy);
+                    stack.push([cx - 1, cy], [cx + 1, cy], [cx, cy - 1], [cx, cy + 1]);
+                }
+                if (count > 2) { // Ignore tiny noise regions
+                    regions.push({
+                        cx: (sumX / sumErr) * scale,
+                        cy: (sumY / sumErr) * scale,
+                        avgError: sumErr / count,
+                        avgDarkness: sumDark / count,
+                        pixelCount: count * scale * scale,
+                        bbox: { x: minX * scale, y: minY * scale, w: (maxX - minX + 1) * scale, h: (maxY - minY + 1) * scale },
+                        radius: Math.sqrt(count * scale * scale / Math.PI),
+                        priority: (sumErr / count) * Math.sqrt(count) * (1 + sumDark / count)
+                    });
+                }
+            }
+
+            for (let sy = 0; sy < sh; sy++) {
+                for (let sx = 0; sx < sw; sx++) {
+                    if (labels[sy * sw + sx] < 0 && small[sy * sw + sx] >= threshold) {
+                        floodFill(sx, sy, nextLabel++);
+                    }
+                }
+            }
+
+            // Sort by priority descending
+            regions.sort((a, b) => b.priority - a.priority);
+            return regions.slice(0, 20);
+        }
+
+        // Pick a high-error point within a region
+        function pickHighErrorPoint(region) {
+            const bx = region.bbox.x, by = region.bbox.y;
+            const bw = region.bbox.w, bh = region.bbox.h;
+            let bestX = region.cx, bestY = region.cy, bestErr = 0;
+            // Sample 30 random points, pick the one with highest error
+            for (let i = 0; i < 30; i++) {
+                const rx = bx + Math.random() * bw;
+                const ry = by + Math.random() * bh;
+                const ix = Math.floor(rx), iy = Math.floor(ry);
+                if (ix >= 0 && ix < w && iy >= 0 && iy < h) {
+                    const e = errorMap[iy * w + ix];
+                    if (e > bestErr) { bestErr = e; bestX = rx; bestY = ry; }
+                }
+            }
+            return { x: bestX, y: bestY, error: bestErr };
+        }
+
+        // ============================================
+        //  LAYER 2: THE DIRECTOR (state machine)
+        // ============================================
+        class Director {
+            constructor() {
+                this.state = 'TRANSIT';  // TRANSIT, WORKING
+                this.regions = [];
+                this.targetRegion = null;
+                this.commandQueue = [];
+                this.workingSteps = 0;
+                this.regionsDone = new Set(); // track visited region indices
+                this.analysisCounter = 0;
+                this.globalCoverage = 0;
+            }
+
+            tick(penObj) {
+                this.analysisCounter++;
+
+                // Re-analyze regions periodically
+                if (this.analysisCounter % 3 === 0 || this.regions.length === 0) {
+                    this.regions = findUnfinishedRegions();
+                    this.computeCoverage();
+                }
+
+                switch (this.state) {
+                    case 'TRANSIT':
+                        if (!this.targetRegion || this.regions.length === 0) {
+                            // Pick best region
+                            this.targetRegion = this.pickBestRegion(penObj);
+                            if (!this.targetRegion) {
+                                // All done!
+                                document.getElementById('phaseDisplay').innerText = 'Complete';
+                                return;
+                            }
+                            // Issue GOTO command
+                            penObj.command = {
+                                type: 'GOTO',
+                                tx: this.targetRegion.cx,
+                                ty: this.targetRegion.cy,
+                                speed: 8,
+                                lineWidth: 0.2,
+                                alpha: 0.04
+                            };
+                            penObj.cmdStep = 0;
+                        }
+                        // Check if arrived (GOTO finished)
+                        if (!penObj.command || penObj.command.type !== 'GOTO') {
+                            this.state = 'WORKING';
+                            this.workingSteps = 0;
+                            this.commandQueue = this.planRegionWork(this.targetRegion);
+                            this.issueNextCommand(penObj);
+                        }
+                        break;
+
+                    case 'WORKING':
+                        this.workingSteps++;
+                        // If current command finished, issue next
+                        if (!penObj.command) {
+                            if (this.commandQueue.length > 0) {
+                                this.issueNextCommand(penObj);
+                            } else {
+                                // Region work done — transit to next
+                                this.state = 'TRANSIT';
+                                this.targetRegion = null;
+                            }
+                        }
+                        // Safety: don't spend too long in one region
+                        if (this.workingSteps > 25) {
+                            this.state = 'TRANSIT';
+                            this.targetRegion = null;
+                            this.commandQueue = [];
+                            penObj.command = null;
+                        }
+                        break;
+                }
+
+                // Update phase display
+                const phaseEl = document.getElementById('phaseDisplay');
+                if (this.globalCoverage < 20) phaseEl.innerText = `Mapping ${Math.round(this.globalCoverage)}%`;
+                else if (this.globalCoverage < 55) phaseEl.innerText = `Building ${Math.round(this.globalCoverage)}%`;
+                else if (this.globalCoverage < 80) phaseEl.innerText = `Detailing ${Math.round(this.globalCoverage)}%`;
+                else phaseEl.innerText = `Refining ${Math.round(this.globalCoverage)}%`;
+            }
+
+            pickBestRegion(penObj) {
+                for (const r of this.regions) {
+                    if (r.avgError > 0.04 && r.pixelCount > 30) return r;
+                }
+                return null;
+            }
+
+            planRegionWork(region) {
+                const cmds = [];
+                const d = region.avgDarkness;
+                const e = region.avgError;
+                const cov = this.globalCoverage / 100;
+
+                // Detect if region is inside face
+                const rcx = Math.floor(region.cx), rcy = Math.floor(region.cy);
+                const fw = (rcx >= 0 && rcx < w && rcy >= 0 && rcy < h && faceWeight)
+                    ? faceWeight[rcy * w + rcx] : 0;
+                const isFace = fw > 0.4;
+
+                // Face regions: slower speed, tighter radius, more iterations, higher alpha
+                // Background regions: faster, wider, fewer passes
+                const faceBoost = isFace ? 1.5 : 1.0;
+                const intensity = lerp(0.04, 0.22, d) * lerp(0.8, 1.3, cov) * faceBoost;
+                const lineW = lerp(0.2, 0.6, d) * lerp(0.7, 1.2, cov);
+                const scribbleRadius = isFace
+                    ? lerp(20, 6, d) * lerp(1.1, 0.5, cov)   // Face: tighter scribbles
+                    : lerp(45, 15, d) * lerp(1.3, 0.6, cov);  // Background: wider
+                const speed = isFace
+                    ? lerp(2.5, 1.0, d)   // Face: slower for detail
+                    : lerp(4.5, 1.5, d);  // Background: faster
+                const scribbleCount = Math.floor(lerp(2, 7, d * e) * (isFace ? 1.3 : 1.0));
+                const stepsPerScribble = Math.floor(lerp(120, 350, d) * (isFace ? 1.2 : 1.0));
+
+                for (let i = 0; i < scribbleCount; i++) {
+                    const pt = pickHighErrorPoint(region);
+
+                    cmds.push({
+                        type: 'SCRIBBLE',
+                        cx: pt.x, cy: pt.y,
+                        radius: scribbleRadius * (0.7 + Math.random() * 0.6),
+                        steps: stepsPerScribble,
+                        lineWidth: lineW,
+                        alpha: intensity,
+                        speed: speed
+                    });
+
+                    // Face regions: more contour following (50% vs 30%)
+                    if (Math.random() < (isFace ? 0.5 : 0.25)) {
+                        cmds.push({
+                            type: 'CONTOUR',
+                            steps: Math.floor(lerp(50, 150, 1 - d)),
+                            flowStrength: lerp(0.25, 0.6, d),
+                            lineWidth: lineW * 0.8,
+                            alpha: intensity * 0.8,
+                            speed: speed
+                        });
+                    }
+
+                    if (Math.random() < 0.15) {
+                        cmds.push({
+                            type: 'WANDER',
+                            cx: region.cx, cy: region.cy,
+                            radius: region.radius,
+                            steps: Math.floor(lerp(60, 150, e)),
+                            lineWidth: lineW * 0.7,
+                            alpha: intensity * 0.6,
+                            speed: speed
+                        });
+                    }
+                }
+                return cmds;
+            }
+
+            issueNextCommand(penObj) {
+                if (this.commandQueue.length === 0) return;
+                // Dampen velocity on ALL transitions to prevent dark spot jerks
+                penObj.vx *= 0.1;
+                penObj.vy *= 0.1;
+                penObj.command = this.commandQueue.shift();
+                penObj.cmdStep = 0;
+                penObj.scribbleAngle = Math.random() * Math.PI * 2;
+            }
+
+            computeCoverage() {
+                let totalErr = 0, totalDark = 0;
+                for (let i = 0; i < errorMap.length; i += 10) {
+                    totalErr += errorMap[i]; totalDark += darknessMap[i];
+                }
+                this.globalCoverage = totalDark > 0 ? (1 - totalErr / totalDark) * 100 : 0;
+            }
+        }
+
+        function lerp(a, b, t) { return a + (b - a) * Math.max(0, Math.min(1, t)); }
+
+        // ============================================
+        //  LAYER 3: THE MONITOR (canvas evaluation)
+        // ============================================
+        class Monitor {
+            constructor() {
+                this.lastEval = 0;
+            }
+
+            evaluate(penObj, director) {
+                // Read canvas pixels and compare to target
+                const canvasData = simCtx.getImageData(0, 0, w, h).data;
+
+                // Check each region the Director knows about
+                for (const region of director.regions) {
+                    const bx = Math.floor(region.bbox.x), by = Math.floor(region.bbox.y);
+                    const bw = Math.floor(region.bbox.w), bh = Math.floor(region.bbox.h);
+                    let mse = 0, cnt = 0;
+
+                    // Sample pixels in region bbox
+                    for (let sy = by; sy < by + bh && sy < h; sy += 3) {
+                        for (let sx = bx; sx < bx + bw && sx < w; sx += 3) {
+                            const pi = (sy * w + sx) * 4;
+                            // Canvas grayscale (inverted: white=0, black=1)
+                            const canvasLum = (canvasData[pi] * 0.21 + canvasData[pi + 1] * 0.72 + canvasData[pi + 2] * 0.07) / 255;
+                            const canvasDark = 1.0 - canvasLum;
+                            const targetDark = darknessMap[sy * w + sx];
+                            const diff = targetDark - canvasDark;
+                            if (diff > 0) mse += diff * diff; // Only count under-drawn
+                            cnt++;
+                        }
+                    }
+                    if (cnt > 0) {
+                        const regionMSE = mse / cnt;
+                        // Boost priority of under-drawn regions
+                        if (regionMSE > 0.02) {
+                            region.priority *= (1 + regionMSE * 5);
+                        }
+                    }
+                }
+
+                // Re-sort regions by boosted priority
+                director.regions.sort((a, b) => b.priority - a.priority);
+            }
+        }
+
+        // ============================================
+        //  SIMULATION LOOP
+        // ============================================
+        let activePen = null;
+        let showErrorOverlay = false;
+        let director = null;
+        let monitor = null;
+        const AUTO_STEPS = 200; // Max steps per frame in auto mode for speed
+
+        function startPen() {
+            simCtx.fillStyle = '#f5f0eb';
+            simCtx.fillRect(0, 0, w, h);
+            activePen = new ChaoticPen();
+            director = new Director();
+            monitor = new Monitor();
+            isPaused = false;
+            simStartTime = performance.now();
+            cancelAnimationFrame(simulationRaf);
+            animatePen();
+        }
+
+        function animatePen() {
+            if (!isPaused && activePen) {
+                if (isAutoDrawing) {
+                    // Director tick every ~600 pen steps (AUTO_STEPS * ~10 frames)
+                    if (activePen.totalSteps % 600 === 0) {
+                        director.tick(activePen);
+                    }
+                    // Monitor evaluation every ~3000 steps
+                    if (activePen.totalSteps % 3000 === 0 && activePen.totalSteps > 0) {
+                        monitor.evaluate(activePen, director);
+                    }
+                    for (let i = 0; i < AUTO_STEPS; i++) {
+                        // If command finished mid-loop, immediately get next from Director
+                        if (!activePen.command) {
+                            director.tick(activePen);
+                        }
+                        activePen.executeCommand();
+                        activePen.drawAuto();
+                    }
+                } else {
+                    for (let i = 0; i < pen.stepsPerFrame; i++) {
+                        activePen.update();
+                        activePen.drawManual();
+                    }
+                }
+                updateStatus();
+            }
+            simulationRaf = requestAnimationFrame(animatePen);
+        }
+
+        function updateStatus() {
+            const elapsed = (performance.now() - simStartTime) / 1000;
+            const m = Math.floor(elapsed / 60).toString().padStart(2, '0');
+            const s = Math.floor(elapsed % 60).toString().padStart(2, '0');
+            document.getElementById('clockDisplay').innerText = `${m}:${s}`;
+
+            // Coverage: percentage of error consumed
+            if (activePen && activePen.totalSteps % 200 === 0) {
+                let totalErr = 0, totalDark = 0;
+                for (let i = 0; i < errorMap.length; i += 10) {
+                    totalErr += errorMap[i];
+                    totalDark += darknessMap[i];
+                }
+                const coverage = totalDark > 0 ? Math.round((1 - totalErr / totalDark) * 100) : 0;
+                document.getElementById('coverageDisplay').innerText = `${coverage}%`;
+            }
+        }
+
+        // ============================================
+        //  UI CONTROLS
+        // ============================================
+        document.getElementById('pauseBtn').onclick = () => {
+            isPaused = !isPaused;
+            document.getElementById('pauseBtn').innerText = isPaused ? 'Resume' : 'Pause';
+        };
+
+        document.getElementById('autoDrawBtn').onclick = () => {
+            if (isAutoDrawing) {
+                isAutoDrawing = false;
+                document.getElementById('autoDrawBtn').innerText = 'Auto Draw';
+            } else {
+                isAutoDrawing = true;
+                simStartTime = performance.now();
+                document.getElementById('autoDrawBtn').innerText = 'Stop Auto';
+                isPaused = false;
+                document.getElementById('pauseBtn').innerText = 'Pause';
+            }
+        };
+
+        document.getElementById('wipeBtn').onclick = () => {
+            simCtx.fillStyle = '#f5f0eb';
+            simCtx.fillRect(0, 0, w, h);
+            if (darknessMap) { for (let i = 0; i < darknessMap.length; i++) errorMap[i] = darknessMap[i]; }
+            activePen = new ChaoticPen();
+            director = new Director();
+            monitor = new Monitor();
+            simStartTime = performance.now();
+            showErrorOverlay = false;
+            savedCanvasData = null;
+            isAutoDrawing = false;
+            document.getElementById('toggleErrorBtn').innerText = 'Error Map';
+            document.getElementById('autoDrawBtn').innerText = 'Auto Draw';
+        };
+
+        document.getElementById('toggleErrorBtn').onclick = () => {
+            showErrorOverlay = !showErrorOverlay;
+            document.getElementById('toggleErrorBtn').innerText = showErrorOverlay ? 'Hide Error' : 'Error Map';
+            if (showErrorOverlay && errorMap) {
+                // SAVE current canvas before overlaying
+                isPaused = true;
+                document.getElementById('pauseBtn').innerText = 'Resume';
+                savedCanvasData = simCtx.getImageData(0, 0, w, h);
+                // Draw error map overlay
+                const imgData = simCtx.createImageData(w, h);
+                for (let i = 0; i < errorMap.length; i++) {
+                    const pi = i * 4;
+                    const e = errorMap[i];
+                    imgData.data[pi] = Math.floor(e * 255);
+                    imgData.data[pi + 1] = Math.floor(e * 40);
+                    imgData.data[pi + 2] = Math.floor((1 - e) * 60);
+                    imgData.data[pi + 3] = 255;
+                }
+                simCtx.putImageData(imgData, 0, 0);
+            } else if (savedCanvasData) {
+                // RESTORE the saved drawing
+                simCtx.putImageData(savedCanvasData, 0, 0);
+                savedCanvasData = null;
+                isPaused = false;
+                document.getElementById('pauseBtn').innerText = 'Pause';
+            }
+        };
+
+        document.getElementById('exportBtn').onclick = () => {
+            const link = document.createElement('a');
+            link.download = `chaotic-pen-${Date.now()}.png`;
+            link.href = simCanvas.toDataURL('image/png', 1.0);
+            link.click();
+        };
+
+        document.getElementById('collapseBtn').onclick = () => {
+            const bar = document.getElementById('bottomBar');
+            bar.classList.toggle('collapsed');
+            document.getElementById('collapseBtn').innerText = bar.classList.contains('collapsed') ? '▲' : '▼';
+        };
+
+        // ============================================
+        //  DEV PANEL WIRING
+        // ============================================
+        function wire(id, key) {
+            const el = document.getElementById('p-' + id);
+            const vEl = document.getElementById('v-' + id);
+            if (!el) return;
+            el.oninput = (e) => {
+                const v = el.type === 'checkbox' ? el.checked : parseFloat(e.target.value);
+                pen[key] = v;
+                if (vEl) vEl.innerText = typeof v === 'number' ? (v % 1 === 0 ? v : v.toFixed(3)) : '';
+            };
+        }
+        wire('maxSpeed', 'maxSpeed'); wire('stepsPerFrame', 'stepsPerFrame');
+        wire('wanderRate', 'wanderRate'); wire('wanderForce', 'wanderForce');
+        wire('errorPull', 'errorPull'); wire('searchRadius', 'searchRadius'); wire('searchStep', 'searchStep');
+        wire('flowStrength', 'flowStrength');
+        wire('dwellFactor', 'dwellFactor'); wire('repulsion', 'repulsion');
+        wire('lineWidthMin', 'lineWidthMin'); wire('lineWidthMax', 'lineWidthMax');
+        wire('alphaMin', 'alphaMin'); wire('alphaMax', 'alphaMax');
+        wire('borderMargin', 'borderMargin'); wire('borderPush', 'borderPush');
+        wire('decayRadius', 'decayRadius'); wire('decayAmount', 'decayAmount');
+
+    </script>
+</body>
+
+</html>
