@@ -933,7 +933,12 @@
             // === AUTO MODE: execute pen commands from Director ===
             executeCommand() {
                 this.totalSteps++;
-                if (!this.command) return;
+                if (!this.command) {
+                    // Zero out drawing params when no command active
+                    this.cmdLineWidth = 0;
+                    this.cmdAlpha = 0;
+                    return;
+                }
                 const cmd = this.command;
                 this.cmdStep++;
 
@@ -1513,12 +1518,11 @@
                     if (activePen.totalSteps % 3000 === 0 && activePen.totalSteps > 0) {
                         monitor.evaluate(activePen, director);
                     }
-                    // Issue command if needed
-                    if (!activePen.command) {
-                        director.tick(activePen);
-                    }
-
                     for (let i = 0; i < AUTO_STEPS; i++) {
+                        // If command finished mid-loop, immediately get next from Director
+                        if (!activePen.command) {
+                            director.tick(activePen);
+                        }
                         activePen.executeCommand();
                         activePen.drawAuto();
                     }
