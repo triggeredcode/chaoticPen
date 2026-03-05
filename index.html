@@ -447,6 +447,145 @@
         .dev-row .tip:hover .tiptext {
             display: block;
         }
+
+        /* Share Modal */
+        .share-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(6px);
+            z-index: 500;
+            display: none;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .share-overlay.visible {
+            display: flex;
+        }
+
+        .share-modal {
+            background: #111114;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 2rem 2.5rem;
+            max-width: 420px;
+            width: 90vw;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            gap: 1.2rem;
+        }
+
+        .share-modal h2 {
+            font-size: 1rem;
+            font-weight: 300;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--accent);
+        }
+
+        .share-modal p {
+            font-size: 0.7rem;
+            color: var(--dim);
+            line-height: 1.5;
+        }
+
+        .share-options {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+        }
+
+        .share-option {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 1.2rem 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.6rem;
+        }
+
+        .share-option:hover {
+            border-color: var(--accent);
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .share-option .share-icon {
+            font-size: 1.8rem;
+        }
+
+        .share-option .share-label {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text);
+        }
+
+        .share-option .share-desc {
+            font-size: 0.55rem;
+            color: var(--dim);
+        }
+
+        .share-option.recording .share-desc {
+            color: #f04040;
+        }
+
+        .share-close {
+            background: transparent;
+            border: 1px solid #333;
+            color: var(--dim);
+            padding: 0.4rem 1.2rem;
+            border-radius: 20px;
+            font-size: 0.6rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            cursor: pointer;
+            transition: all 0.2s;
+            align-self: center;
+        }
+
+        .share-close:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .share-github {
+            font-size: 0.55rem;
+            color: var(--dim);
+        }
+
+        .share-github a {
+            color: var(--accent);
+            text-decoration: none;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            transition: border-color 0.2s;
+        }
+
+        .share-github a:hover {
+            border-color: var(--accent);
+        }
+
+        .rec-dot {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            background: #f04040;
+            border-radius: 50%;
+            animation: recPulse 1s infinite;
+            margin-right: 4px;
+            vertical-align: middle;
+        }
+
+        @keyframes recPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
     </style>
 </head>
 
@@ -514,6 +653,7 @@
             <button class="btn" id="toggleErrorBtn">Error Map</button>
             <div class="sep"></div>
             <button class="btn btn-primary" id="exportBtn">Export PNG</button>
+            <button class="btn" id="shareBtn">Share</button>
         </div>
         <button class="collapse-toggle" id="collapseBtn" title="Toggle bar">▼</button>
 
@@ -601,6 +741,30 @@
     </div>
 
     <input type="file" id="fileInput" class="hidden-input" accept="image/*">
+
+    <!-- SHARE MODAL -->
+    <div class="share-overlay" id="shareOverlay">
+        <div class="share-modal">
+            <h2>Share Your Art</h2>
+            <p>Share your chaotic pen creation on Twitter/X</p>
+            <div class="share-options">
+                <div class="share-option" id="shareImageBtn">
+                    <span class="share-icon">🖼</span>
+                    <span class="share-label">Image</span>
+                    <span class="share-desc">Download PNG + share</span>
+                </div>
+                <div class="share-option" id="shareVideoBtn">
+                    <span class="share-icon">🎬</span>
+                    <span class="share-label">Video</span>
+                    <span class="share-desc" id="videoStatus">Recording in background...</span>
+                </div>
+            </div>
+            <div class="share-github">
+                Made with <strong>Chaotic Pen</strong> — <a href="https://github.com/triggeredcode/chaoticPen" target="_blank">Star on GitHub</a>
+            </div>
+            <button class="share-close" id="shareCloseBtn">Close</button>
+        </div>
+    </div>
 
     <script>
         // ============================================
@@ -724,15 +888,9 @@
 
         document.querySelectorAll('.gallery-thumb').forEach(thumb => {
             thumb.addEventListener('click', () => {
-                const src = thumb.getAttribute('data-src');
-                console.log('Gallery click:', src);
-                originalImg = new Image();
-                originalImg.onload = () => {
-                    console.log('Gallery image loaded:', originalImg.naturalWidth, 'x', originalImg.naturalHeight);
-                    initEditor(originalImg);
-                };
-                originalImg.onerror = (e) => console.error('Gallery image load error:', e);
-                originalImg.src = src;
+                console.log('Gallery click:', thumb.src);
+                originalImg = thumb;
+                initEditor(originalImg);
             });
         });
 
@@ -1564,6 +1722,10 @@
             isPaused = false;
             simStartTime = performance.now();
             cancelAnimationFrame(simulationRaf);
+            // Start background video recording
+            stopRecording();
+            recordedBlob = null;
+            setTimeout(() => startRecording(), 100); // Small delay to capture first blank frame
             animatePen();
         }
 
@@ -1649,6 +1811,10 @@
             isAutoDrawing = false;
             document.getElementById('toggleErrorBtn').innerText = 'Error Map';
             document.getElementById('autoDrawBtn').innerText = 'Auto Draw';
+            // Restart recording for fresh video
+            stopRecording();
+            recordedBlob = null;
+            setTimeout(() => startRecording(), 100);
         };
 
         document.getElementById('toggleErrorBtn').onclick = () => {
@@ -1714,6 +1880,136 @@
         wire('alphaMin', 'alphaMin'); wire('alphaMax', 'alphaMax');
         wire('borderMargin', 'borderMargin'); wire('borderPush', 'borderPush');
         wire('decayRadius', 'decayRadius'); wire('decayAmount', 'decayAmount');
+
+        // ============================================
+        //  VIDEO RECORDING (background)
+        // ============================================
+        let mediaRecorder = null;
+        let recordedChunks = [];
+        let isRecording = false;
+        let recordedBlob = null;
+
+        function startRecording() {
+            try {
+                const stream = simCanvas.captureStream(30); // 30 fps
+                const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+                    ? 'video/webm;codecs=vp9'
+                    : MediaRecorder.isTypeSupported('video/webm')
+                        ? 'video/webm'
+                        : 'video/mp4';
+                mediaRecorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5000000 });
+                recordedChunks = [];
+                recordedBlob = null;
+
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) recordedChunks.push(e.data);
+                };
+
+                mediaRecorder.onstop = () => {
+                    recordedBlob = new Blob(recordedChunks, { type: mimeType });
+                    recordedChunks = [];
+                    const vStatus = document.getElementById('videoStatus');
+                    if (vStatus) vStatus.textContent = 'Ready to download';
+                };
+
+                mediaRecorder.start(1000); // Collect data every second
+                isRecording = true;
+                console.log('Recording started:', mimeType);
+            } catch (e) {
+                console.warn('Recording not supported:', e);
+                const vStatus = document.getElementById('videoStatus');
+                if (vStatus) vStatus.textContent = 'Not supported in this browser';
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                isRecording = false;
+            }
+        }
+
+        // ============================================
+        //  SHARE FUNCTIONALITY
+        // ============================================
+        const SHARE_TEXT = `Created this portrait with a single chaotic pen stroke ✍️\n\nMade with Chaotic Pen — a physics-based pen simulation that sketches portraits from one continuous line.\n\n⭐ https://github.com/triggeredcode/chaoticPen\n\n#ChaoticPen #GenerativeArt #CreativeCoding`;
+
+        const TWITTER_INTENT_BASE = 'https://twitter.com/intent/tweet';
+
+        function openTwitterIntent(text) {
+            const url = `${TWITTER_INTENT_BASE}?text=${encodeURIComponent(text)}`;
+            window.open(url, '_blank', 'width=600,height=400');
+        }
+
+        function downloadFile(blob, filename) {
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            link.click();
+            setTimeout(() => URL.revokeObjectURL(link.href), 5000);
+        }
+
+        document.getElementById('shareBtn').onclick = () => {
+            const overlay = document.getElementById('shareOverlay');
+            overlay.classList.add('visible');
+            // Update video status
+            const vStatus = document.getElementById('videoStatus');
+            if (recordedBlob) {
+                vStatus.innerHTML = 'Ready to download';
+            } else if (isRecording) {
+                vStatus.innerHTML = '<span class="rec-dot"></span>Recording in background...';
+            } else {
+                vStatus.textContent = 'No recording available';
+            }
+        };
+
+        document.getElementById('shareCloseBtn').onclick = () => {
+            document.getElementById('shareOverlay').classList.remove('visible');
+        };
+
+        document.getElementById('shareOverlay').onclick = (e) => {
+            if (e.target === document.getElementById('shareOverlay')) {
+                document.getElementById('shareOverlay').classList.remove('visible');
+            }
+        };
+
+        document.getElementById('shareImageBtn').onclick = () => {
+            // Download the PNG
+            simCanvas.toBlob((blob) => {
+                downloadFile(blob, `chaotic-pen-${Date.now()}.png`);
+                // Open Twitter with share text
+                openTwitterIntent(SHARE_TEXT);
+            }, 'image/png', 1.0);
+            document.getElementById('shareOverlay').classList.remove('visible');
+        };
+
+        document.getElementById('shareVideoBtn').onclick = () => {
+            if (recordedBlob) {
+                // Stop recording and download
+                const ext = recordedBlob.type.includes('mp4') ? 'mp4' : 'webm';
+                downloadFile(recordedBlob, `chaotic-pen-${Date.now()}.${ext}`);
+                openTwitterIntent(SHARE_TEXT);
+                document.getElementById('shareOverlay').classList.remove('visible');
+            } else if (isRecording) {
+                // Stop recording, wait for blob, then download
+                const vStatus = document.getElementById('videoStatus');
+                vStatus.textContent = 'Finalizing video...';
+                mediaRecorder.onstop = () => {
+                    const mimeType = mediaRecorder.mimeType;
+                    recordedBlob = new Blob(recordedChunks, { type: mimeType });
+                    recordedChunks = [];
+                    const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+                    downloadFile(recordedBlob, `chaotic-pen-${Date.now()}.${ext}`);
+                    openTwitterIntent(SHARE_TEXT);
+                    document.getElementById('shareOverlay').classList.remove('visible');
+                };
+                stopRecording();
+            } else {
+                // No recording available
+                const vStatus = document.getElementById('videoStatus');
+                vStatus.textContent = 'Start drawing first to record';
+            }
+        };
 
     </script>
 </body>
