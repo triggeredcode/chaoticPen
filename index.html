@@ -226,6 +226,39 @@
             display: none;
         }
 
+        .splash-buttons {
+            display: flex;
+            gap: 0.8rem;
+            align-items: center;
+        }
+
+        .gallery-grid {
+            display: none;
+            gap: 0.8rem;
+            margin-top: 0.5rem;
+            justify-content: center;
+        }
+
+        .gallery-grid.visible {
+            display: flex;
+        }
+
+        .gallery-thumb {
+            width: 90px;
+            height: 90px;
+            border-radius: 6px;
+            object-fit: cover;
+            border: 2px solid transparent;
+            cursor: pointer;
+            opacity: 0.7;
+            transition: all 0.2s;
+        }
+
+        .gallery-thumb:hover {
+            opacity: 1;
+            border-color: var(--accent);
+        }
+
         .sep {
             width: 1px;
             height: 24px;
@@ -433,8 +466,15 @@
                 Upload a portrait. The system will detect the face, build a density map, and deploy a single chaotic pen
                 to sketch it — one continuous stroke.
             </p>
-            <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Load
-                Portrait</button>
+            <div class="splash-buttons">
+                <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Load Portrait</button>
+                <button class="btn" id="galleryToggleBtn">Choose from Gallery</button>
+            </div>
+            <div class="gallery-grid" id="galleryGrid">
+                <img class="gallery-thumb" data-src="alexander-krivitskiy-o7wiNx9x9OQ-unsplash.jpg" src="alexander-krivitskiy-o7wiNx9x9OQ-unsplash.jpg" alt="Portrait 1">
+                <img class="gallery-thumb" data-src="jimmy-fermin-bqe0J0b26RQ-unsplash.jpg" src="jimmy-fermin-bqe0J0b26RQ-unsplash.jpg" alt="Portrait 2">
+                <img class="gallery-thumb" data-src="houcine-ncib-B4TjXnI0Y2c-unsplash.jpg" src="houcine-ncib-B4TjXnI0Y2c-unsplash.jpg" alt="Portrait 3">
+            </div>
         </div>
     </div>
 
@@ -678,6 +718,24 @@
         // ============================================
         //  PHASE 1: UPLOAD
         // ============================================
+        document.getElementById('galleryToggleBtn').onclick = () => {
+            document.getElementById('galleryGrid').classList.toggle('visible');
+        };
+
+        document.querySelectorAll('.gallery-thumb').forEach(thumb => {
+            thumb.addEventListener('click', () => {
+                const src = thumb.getAttribute('data-src');
+                console.log('Gallery click:', src);
+                originalImg = new Image();
+                originalImg.onload = () => {
+                    console.log('Gallery image loaded:', originalImg.naturalWidth, 'x', originalImg.naturalHeight);
+                    initEditor(originalImg);
+                };
+                originalImg.onerror = (e) => console.error('Gallery image load error:', e);
+                originalImg.src = src;
+            });
+        });
+
         document.getElementById('fileInput').onchange = (e) => {
             const f = e.target.files[0]; if (!f) return;
             const reader = new FileReader();
@@ -692,9 +750,11 @@
 
         function initEditor(img) {
             const maxW = window.innerWidth * 0.9, maxH = window.innerHeight * 0.8;
-            const scale = Math.min(maxW / img.width, maxH / img.height);
-            w = editCanvas.width = simCanvas.width = Math.max(1, Math.floor(img.width * scale));
-            h = editCanvas.height = simCanvas.height = Math.max(1, Math.floor(img.height * scale));
+            const imgW = img.naturalWidth || img.width;
+            const imgH = img.naturalHeight || img.height;
+            const scale = Math.min(maxW / imgW, maxH / imgH);
+            w = editCanvas.width = simCanvas.width = Math.max(1, Math.floor(imgW * scale));
+            h = editCanvas.height = simCanvas.height = Math.max(1, Math.floor(imgH * scale));
             const tc = document.createElement('canvas'); tc.width = w; tc.height = h;
             const tCtx = tc.getContext('2d'); tCtx.drawImage(img, 0, 0, w, h);
             sourceImgData = tCtx.getImageData(0, 0, w, h).data;
