@@ -11,6 +11,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"
         crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/build/mp4-muxer.min.js"></script>
     <style>
         :root {
             --bg: #050505;
@@ -1882,52 +1883,104 @@
         wire('decayRadius', 'decayRadius'); wire('decayAmount', 'decayAmount');
 
         // ============================================
-        //  VIDEO RECORDING (background)
+        //  MP4 VIDEO RECORDING (WebCodecs + mp4-muxer)
         // ============================================
-        let mediaRecorder = null;
-        let recordedChunks = [];
+        let videoEncoder = null;
+        let mp4MuxerTarget = null;
+        let mp4MuxerInstance = null;
+        let frameInterval = null;
+        let frameCount = 0;
         let isRecording = false;
         let recordedBlob = null;
+        const REC_FPS = 30;
 
         function startRecording() {
+            if (typeof Mp4Muxer === 'undefined' || typeof VideoEncoder === 'undefined') {
+                console.warn('MP4 recording not available (needs WebCodecs + mp4-muxer)');
+                document.getElementById('videoStatus').textContent = 'Not supported in this browser';
+                return;
+            }
             try {
-                const stream = simCanvas.captureStream(30); // 30 fps
-                const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-                    ? 'video/webm;codecs=vp9'
-                    : MediaRecorder.isTypeSupported('video/webm')
-                        ? 'video/webm'
-                        : 'video/mp4';
-                mediaRecorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5000000 });
-                recordedChunks = [];
+                frameCount = 0;
                 recordedBlob = null;
 
-                mediaRecorder.ondataavailable = (e) => {
-                    if (e.data.size > 0) recordedChunks.push(e.data);
-                };
+                mp4MuxerTarget = new Mp4Muxer.ArrayBufferTarget();
+                mp4MuxerInstance = new Mp4Muxer.Muxer({
+                    target: mp4MuxerTarget,
+                    video: {
+                        codec: 'avc',
+                        width: simCanvas.width,
+                        height: simCanvas.height,
+                    },
+                    fastStart: 'in-memory',
+                });
 
-                mediaRecorder.onstop = () => {
-                    recordedBlob = new Blob(recordedChunks, { type: mimeType });
-                    recordedChunks = [];
-                    const vStatus = document.getElementById('videoStatus');
-                    if (vStatus) vStatus.textContent = 'Ready to download';
-                };
+                videoEncoder = new VideoEncoder({
+                    output: (chunk, meta) => mp4MuxerInstance.addVideoChunk(chunk, meta),
+                    error: (e) => console.error('VideoEncoder error:', e),
+                });
 
-                mediaRecorder.start(1000); // Collect data every second
+                videoEncoder.configure({
+                    codec: 'avc1.42001f',
+                    width: simCanvas.width,
+                    height: simCanvas.height,
+                    bitrate: 4_000_000,
+                    framerate: REC_FPS,
+                });
+
+                frameInterval = setInterval(() => {
+                    if (isPaused || !videoEncoder || videoEncoder.state === 'closed') return;
+                    try {
+                        const frame = new VideoFrame(simCanvas, {
+                            timestamp: frameCount * (1_000_000 / REC_FPS),
+                        });
+                        videoEncoder.encode(frame, { keyFrame: frameCount % 90 === 0 });
+                        frame.close();
+                        frameCount++;
+                    } catch (e) { /* canvas not ready */ }
+                }, 1000 / REC_FPS);
+
                 isRecording = true;
-                console.log('Recording started:', mimeType);
+                console.log('MP4 recording started:', simCanvas.width, 'x', simCanvas.height);
             } catch (e) {
-                console.warn('Recording not supported:', e);
-                const vStatus = document.getElementById('videoStatus');
-                if (vStatus) vStatus.textContent = 'Not supported in this browser';
+                console.warn('Recording failed:', e);
+                document.getElementById('videoStatus').textContent = 'Recording failed to start';
             }
         }
 
-        function stopRecording() {
-            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                mediaRecorder.stop();
-                isRecording = false;
+        function teardownRecording() {
+            clearInterval(frameInterval);
+            frameInterval = null;
+            isRecording = false;
+            if (videoEncoder && videoEncoder.state !== 'closed') {
+                try { videoEncoder.close(); } catch (e) {}
             }
+            videoEncoder = null;
+            mp4MuxerInstance = null;
+            mp4MuxerTarget = null;
         }
+
+        async function finalizeRecording() {
+            clearInterval(frameInterval);
+            frameInterval = null;
+            isRecording = false;
+            if (videoEncoder && videoEncoder.state !== 'closed') {
+                await videoEncoder.flush();
+                videoEncoder.close();
+            }
+            if (mp4MuxerInstance) {
+                mp4MuxerInstance.finalize();
+                const buffer = mp4MuxerTarget.buffer;
+                recordedBlob = new Blob([buffer], { type: 'video/mp4' });
+            }
+            videoEncoder = null;
+            mp4MuxerInstance = null;
+            mp4MuxerTarget = null;
+            return recordedBlob;
+        }
+
+        // Keep old name for startPen/wipe compatibility
+        function stopRecording() { teardownRecording(); }
 
         // ============================================
         //  SHARE FUNCTIONALITY
@@ -1952,12 +2005,13 @@
         document.getElementById('shareBtn').onclick = () => {
             const overlay = document.getElementById('shareOverlay');
             overlay.classList.add('visible');
-            // Update video status
             const vStatus = document.getElementById('videoStatus');
             if (recordedBlob) {
-                vStatus.innerHTML = 'Ready to download';
+                vStatus.innerHTML = 'Ready to download (.mp4)';
             } else if (isRecording) {
-                vStatus.innerHTML = '<span class="rec-dot"></span>Recording in background...';
+                vStatus.innerHTML = '<span class="rec-dot"></span>Recording as MP4...';
+            } else if (typeof VideoEncoder === 'undefined') {
+                vStatus.textContent = 'Not supported in this browser';
             } else {
                 vStatus.textContent = 'No recording available';
             }
@@ -1974,40 +2028,32 @@
         };
 
         document.getElementById('shareImageBtn').onclick = () => {
-            // Download the PNG
             simCanvas.toBlob((blob) => {
                 downloadFile(blob, `chaotic-pen-${Date.now()}.png`);
-                // Open Twitter with share text
                 openTwitterIntent(SHARE_TEXT);
             }, 'image/png', 1.0);
             document.getElementById('shareOverlay').classList.remove('visible');
         };
 
-        document.getElementById('shareVideoBtn').onclick = () => {
+        document.getElementById('shareVideoBtn').onclick = async () => {
             if (recordedBlob) {
-                // Stop recording and download
-                const ext = recordedBlob.type.includes('mp4') ? 'mp4' : 'webm';
-                downloadFile(recordedBlob, `chaotic-pen-${Date.now()}.${ext}`);
+                downloadFile(recordedBlob, `chaotic-pen-${Date.now()}.mp4`);
                 openTwitterIntent(SHARE_TEXT);
                 document.getElementById('shareOverlay').classList.remove('visible');
             } else if (isRecording) {
-                // Stop recording, wait for blob, then download
                 const vStatus = document.getElementById('videoStatus');
-                vStatus.textContent = 'Finalizing video...';
-                mediaRecorder.onstop = () => {
-                    const mimeType = mediaRecorder.mimeType;
-                    recordedBlob = new Blob(recordedChunks, { type: mimeType });
-                    recordedChunks = [];
-                    const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
-                    downloadFile(recordedBlob, `chaotic-pen-${Date.now()}.${ext}`);
+                vStatus.textContent = 'Finalizing MP4...';
+                const blob = await finalizeRecording();
+                if (blob) {
+                    downloadFile(blob, `chaotic-pen-${Date.now()}.mp4`);
                     openTwitterIntent(SHARE_TEXT);
-                    document.getElementById('shareOverlay').classList.remove('visible');
-                };
-                stopRecording();
+                } else {
+                    vStatus.textContent = 'Failed to create video';
+                    return;
+                }
+                document.getElementById('shareOverlay').classList.remove('visible');
             } else {
-                // No recording available
-                const vStatus = document.getElementById('videoStatus');
-                vStatus.textContent = 'Start drawing first to record';
+                document.getElementById('videoStatus').textContent = 'Start drawing first to record';
             }
         };
 
